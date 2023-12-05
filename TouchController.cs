@@ -10,6 +10,9 @@ namespace LilyConsole
         private TouchManager RingL;
         private TouchManager RingR;
 
+        public bool[,] touchData = new bool[4, 60];
+        public List<ActiveSegment> segments = new List<ActiveSegment>();
+
         public TouchController(string leftPort = "COM4", string rightPort = "COM3")
         {
             RingL = new TouchManager(leftPort, 'L');
@@ -21,13 +24,38 @@ namespace LilyConsole
             RingL.Initialize();
             RingR.Initialize();
         }
+
+        public bool[,] GetTouchData()
+        {
+            var touchL = RingL.touchData;
+            var touchR = RingR.touchData;
+
+            bool[,] mergedArray = new bool[4, 60];
+
+            for (int row = 0; row < 4; row++)
+            {
+                for (int column = 0; column < 30; column++)
+                {
+                    mergedArray[row, column] = touchR[row, 29 - column];
+                }
+
+                for (int column = 0; column < 30; column++)
+                {
+                    mergedArray[row, column + 30] = touchL[row, column];
+                }
+            }
+
+            this.touchData = mergedArray;
+            return this.touchData;
+        }
         
         public static bool ValidateChecksum(byte[] packet)
         {
             byte chk = 0x00;
             for (var i = 0; i < packet.Length - 1; i++)
                 chk ^= packet[i];
-            return packet[packet.Length] == chk;
+            chk ^= 128;
+            return packet[packet.Length-1] == chk;
         }
     }
 
@@ -41,8 +69,8 @@ namespace LilyConsole
 
         private bool streamMode = false;
         private byte[] lastRawData = new byte[24];
-        private bool[,] touchData = new bool[4,30];
-        private List<ActiveSegment> segments = new List<ActiveSegment>();
+        public bool[,] touchData = new bool[4,30];
+        public List<ActiveSegment> segments = new List<ActiveSegment>();
         private byte loopState = 0;
 
         public readonly char letter;
@@ -59,8 +87,15 @@ namespace LilyConsole
 
         public void Initialize()
         {
+            port.Open();
             GetSyncVersion();
             GetUnitVersion();
+        }
+
+        public void Close()
+        {
+            // TODO: make this tell the panels to shut the fuck up.
+            port.Close();
         }
         
         public void GetSyncVersion()
@@ -114,31 +149,35 @@ namespace LilyConsole
                 }
                 Console.Write("\n");
             }
-            Console.WriteLine($"Loop state: {loopState}");
+            Console.WriteLine($"Loop state: {loopState,3}");
             Console.WriteLine($"Currently touched segments: {segments.Count}");
+            Console.SetCursorPosition(Console.CursorLeft, Console.CursorTop-7);
         }
 
-        private bool[,] GetTouchData(byte[] stream = null)
+        private bool[,] GetTouchData(TouchCommand stream = null)
         {
             segments.Clear();
-            var raw = stream != null ? new TouchCommand(stream) : ReadData(36);
+            var raw = stream != null ? stream : ReadData(36);
+            if (raw.Command != (byte)Command.TOUCH_DATA) throw new Exception("that's not touch data.");
 
             bool[,] touchData = new bool[4, 30];
 
             loopState = raw.Data[raw.Data.Length - 1];
             Buffer.BlockCopy(raw.Data, 0, lastRawData, 0, 24);
-
-            for (int panel = 0; panel < 6; panel++)
+            
+            for (int row = 0; row < 4; row++)
             {
-                for (int row = 0; row < 4; row++)
+                for (int panel = 0; panel < 6; panel++)
                 {
-                    var rowData = lastRawData[row + (panel * 6)];
+                    var rowData = lastRawData[panel + (row * 6)];
                     for (int segment = 0; segment < 5; segment++)
                     {
                         var active = (rowData & (1 << segment)) != 0;
                         
                         var x = row;
-                        var y = (panel * 6) + segment;
+                        var y = segment + (panel * 5);
+
+                        //if(isRight) y = 29 - y;
                         
                         if (active)
                         {
@@ -151,7 +190,7 @@ namespace LilyConsole
             }
 
             this.touchData = touchData;
-            return touchData;
+            return this.touchData;
         } 
 
         private void SendByte(byte data)
@@ -172,6 +211,9 @@ namespace LilyConsole
         private TouchCommand ReadData(int size)
         {
             var raw = new byte[size];
+            while (port.BytesToRead < size) {
+              
+            }
             port.Read(raw, 0, size);
             
             if (!TouchController.ValidateChecksum(raw))
@@ -181,20 +223,14 @@ namespace LilyConsole
 
             return new TouchCommand(raw);
         }
-        
+
         private void DataReceived(object sender, SerialDataReceivedEventArgs e)
         {
-            // Handle incoming data
-            SerialPort sp = (SerialPort)sender;
-            int bytesToRead = sp.BytesToRead;
-
-            byte[] buffer = new byte[bytesToRead];
-            sp.Read(buffer, 0, bytesToRead);
-
-            // Process the received data (e.g., display or use it)
-            Console.WriteLine($"Received data: {BitConverter.ToString(buffer)}");
-
-            GetTouchData();
+            // this is probably really stupid
+            if (port.BytesToRead >= 36)
+            {
+                GetTouchData();
+            }
         }
     }
 
@@ -222,14 +258,22 @@ namespace LilyConsole
     public enum Command
     {
         NEXT_WRITE = 0x20,
+        UNKNOWN_6 = 0x6F,
+        UNKNOWN_7 = 0x71,
         NEXT_READ = 0x72,
         BEGIN_WRITE = 0x77,
         TOUCH_DATA = 0x81,
+        UNKNOWN_4 = 0x91,
+        UNKNOWN_5 = 0x93,
         UNKNOWN_2 = 0x94,
         GET_SYNC_BOARD_VER = 0xA0,
         UNKNOWN_1 = 0xA2,
         UNKNOWN_READ = 0xA3,
         GET_UNIT_BOARD_VER = 0xA8,
+        UNKNOWN_3 = 0xA9,
+        UNKNOWN_10 = 0xBC,
+        UNKNOWN_9 = 0xC0,
+        UNKNOWN_8 = 0xC1,
         START_AUTO_SCAN = 0xC9,
     }
 }
