@@ -1,5 +1,6 @@
 ﻿using LilyConsole;
 using System;
+using System.Net.NetworkInformation;
 
 namespace LilyConsoleTesting
 {
@@ -7,11 +8,21 @@ namespace LilyConsoleTesting
     {
         public static void Main(string[] args)
         {
-            //var controller = new TouchController();
-            //controller.Initialize();
-            
-            //var RingL = new TouchManager("COM4", 'L');
-            var RingR = new TouchManager("COM3", 'R');
+            var controller = new TouchController();
+            controller.Initialize();
+            Console.CursorVisible = false;
+            Console.WriteLine("Starting touch streams!");
+            controller.StartTouchStream();
+            Console.WriteLine("Started!");
+            while (true)
+            {
+                controller.GetTouchData();
+                controller.DebugTouch();
+            }
+
+            //var RingL = new TouchManager("COM3", 'L');
+            //var RingR = new TouchManager("COM3", 'R');
+
             /*
             RingL.Initialize();
             RingL.DebugInfo();
@@ -24,6 +35,8 @@ namespace LilyConsoleTesting
                 if(RingL.segments.Count > 0) RingL.DebugTouch();
             }
             */
+
+            /*
             RingR.Initialize();
             RingR.DebugInfo();
             Console.ReadKey();
@@ -33,7 +46,7 @@ namespace LilyConsoleTesting
             while (true)
             {
                 if (RingR.segments.Count > 0) RingR.DebugTouch();
-            }
+            }*/
         }
     }
 }

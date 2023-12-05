@@ -25,30 +25,57 @@ namespace LilyConsole
             RingR.Initialize();
         }
 
+        public void StartTouchStream()
+        {
+            RingL.StartTouchStream();
+            RingR.StartTouchStream();
+        }
+
         public bool[,] GetTouchData()
         {
+            segments.Clear();
+
             var touchL = RingL.touchData;
             var touchR = RingR.touchData;
-
-            bool[,] mergedArray = new bool[4, 60];
 
             for (int row = 0; row < 4; row++)
             {
                 for (int column = 0; column < 30; column++)
                 {
-                    mergedArray[row, column] = touchR[row, 29 - column];
+                    if(this.touchData[row, column] = touchL[row, column])
+                    {
+                        segments.Add(new ActiveSegment(row, column));
+                    }
                 }
 
                 for (int column = 0; column < 30; column++)
                 {
-                    mergedArray[row, column + 30] = touchL[row, column];
+                    if(this.touchData[row, column + 30] = touchR[row, 29 - column])
+                    {
+                        segments.Add(new ActiveSegment(row, column + 30));
+                    }
                 }
             }
 
-            this.touchData = mergedArray;
             return this.touchData;
         }
-        
+
+        public void DebugTouch()
+        {
+            Console.WriteLine("Current Touch Frame:");
+            for (int row = 0; row < 4; row++)
+            {
+                for (int column = 0; column < 60; column++)
+                {
+                    Console.Write(touchData[row, column] ? "\u2588" : "\u2591");
+                }
+                Console.Write("\n");
+            }
+            Console.WriteLine($"Loop state: L: {RingL.loopState,3}, R: {RingR.loopState,3}");
+            Console.WriteLine($"Currently touched segments: {segments.Count,3}");
+            Console.SetCursorPosition(Console.CursorLeft, Console.CursorTop - 7);
+        }
+
         public static bool ValidateChecksum(byte[] packet)
         {
             byte chk = 0x00;
@@ -71,7 +98,7 @@ namespace LilyConsole
         private byte[] lastRawData = new byte[24];
         public bool[,] touchData = new bool[4,30];
         public List<ActiveSegment> segments = new List<ActiveSegment>();
-        private byte loopState = 0;
+        public byte loopState = 0;
 
         public readonly char letter;
 
@@ -160,7 +187,7 @@ namespace LilyConsole
             var raw = stream != null ? stream : ReadData(36);
             if (raw.Command != (byte)Command.TOUCH_DATA) throw new Exception("that's not touch data.");
 
-            bool[,] touchData = new bool[4, 30];
+            this.touchData = new bool[4, 30];
 
             loopState = raw.Data[raw.Data.Length - 1];
             Buffer.BlockCopy(raw.Data, 0, lastRawData, 0, 24);
@@ -182,14 +209,13 @@ namespace LilyConsole
                         if (active)
                         {
                             // this looks like shit
-                            segments.Add(new ActiveSegment() {x = x, y = y});
+                            segments.Add(new ActiveSegment(x, y));
                         }
-                        touchData[x, y] = active;
+                        this.touchData[x, y] = active;
                     }
                 }
             }
 
-            this.touchData = touchData;
             return this.touchData;
         } 
 
@@ -253,6 +279,12 @@ namespace LilyConsole
     {
         public int x;
         public int y;
+
+        public ActiveSegment(int x, int y)
+        {
+            this.x = x;
+            this.y = y;
+        }
     }
 
     public enum Command
