@@ -8,6 +8,10 @@ namespace LilyConsoleTesting
     {
         public static void Main(string[] args)
         {
+            var lights = new LightController();
+            lights.Initialize();
+
+            /*
             var controller = new TouchController();
             controller.Initialize();
             Console.CursorVisible = false;
@@ -19,6 +23,7 @@ namespace LilyConsoleTesting
                 controller.GetTouchData();
                 controller.DebugTouch();
             }
+            */
 
             //var RingL = new TouchManager("COM3", 'L');
             //var RingR = new TouchManager("COM3", 'R');
