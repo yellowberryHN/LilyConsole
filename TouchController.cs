@@ -76,9 +76,9 @@ namespace LilyConsole
             var touchL = RingL.touchData;
             var touchR = RingR.touchData;
 
-            for (int row = 0; row < 4; row++)
+            for (byte row = 0; row < 4; row++)
             {
-                for (int column = 0; column < 30; column++)
+                for (byte column = 0; column < 30; column++)
                 {
                     if(this.touchData[row, column] = touchL[row, column])
                     {
@@ -86,12 +86,12 @@ namespace LilyConsole
                     }
                 }
                 
-                for (int column = 0; column < 30; column++)
+                for (byte column = 0; column < 30; column++)
                 {
                     // mirror the right side to normalize the data.
                     if(this.touchData[row, column + 30] = touchR[row, 29 - column])
                     {
-                        segments.Add(new ActiveSegment(row, column + 30));
+                        segments.Add(new ActiveSegment(row, (byte)(column + 30)));
                     }
                 }
             }
@@ -242,7 +242,7 @@ namespace LilyConsole
             var info = Encoding.ASCII.GetString(ReadData(45).Data);
             syncVersion = info.Substring(0, 6);
             if (info[6] != letter) throw new Exception("Sync Board disagrees which side it is!");
-            for (int i = 0; i < 6; i++)
+            for (var i = 0; i < 6; i++)
             {
                 unitVersions[i] = info.Substring(7+(i*6), 6);
             }
@@ -321,17 +321,17 @@ namespace LilyConsole
             loopState = raw.Data[raw.Data.Length - 1];
             Buffer.BlockCopy(raw.Data, 0, lastRawData, 0, 24);
             
-            for (int row = 0; row < 4; row++)
+            for (byte row = 0; row < 4; row++)
             {
-                for (int panel = 0; panel < 6; panel++)
+                for (byte panel = 0; panel < 6; panel++)
                 {
                     var rowData = lastRawData[panel + (row * 6)];
-                    for (int segment = 0; segment < 5; segment++)
+                    for (byte segment = 0; segment < 5; segment++)
                     {
                         var active = (rowData & (1 << segment)) != 0;
                         
-                        var x = row;
-                        var y = segment + (panel * 5);
+                        var x = (byte)row;
+                        var y = (byte)(segment + (panel * 5));
                         
                         if (active) segments.Add(new ActiveSegment(x, y));
                         this.touchData[x, y] = active;
@@ -413,29 +413,6 @@ namespace LilyConsole
             Command = raw[0];
             Checksum = raw[raw.Length - 1];
             Buffer.BlockCopy(raw, 1, Data, 0, Data.Length);
-        }
-    }
-
-    /// <summary>
-    /// Information for a currently active segment.
-    /// </summary>
-    public struct ActiveSegment
-    {
-        /// <summary>
-        /// Row number, from closest to screen to furthest.
-        /// </summary>
-        /// <remarks>Range: 0-3</remarks>
-        public int X;
-        /// <summary>
-        /// Column number, from the top left, around the ring to the top right.
-        /// </summary>
-        /// <remarks>Range: 0-29</remarks>
-        public int Y;
-
-        public ActiveSegment(int x, int y)
-        {
-            this.X = x;
-            this.Y = y;
         }
     }
 

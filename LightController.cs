@@ -89,5 +89,11 @@ namespace LilyConsole
 
             return ftStatus;
         }
+
+        public void SendLightFrame(LightFrame frame)
+        {
+            // TODO: send light frame data here. 
+            //lightBoard.Write
+        }
     }
 }

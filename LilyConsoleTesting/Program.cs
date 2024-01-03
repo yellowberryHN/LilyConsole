@@ -1,6 +1,5 @@
 ﻿using LilyConsole;
 using System;
-using System.Net.NetworkInformation;
 
 namespace LilyConsoleTesting
 {
@@ -8,6 +7,11 @@ namespace LilyConsoleTesting
     {
         public static void Main(string[] args)
         {
+            var vfd = new VFDController();
+            vfd.Initialize();
+            vfd.PowerOn();
+            vfd.Write("Hello!");
+            
             var lights = new LightController();
             lights.Initialize();
 
@@ -51,7 +55,8 @@ namespace LilyConsoleTesting
             while (true)
             {
                 if (RingR.segments.Count > 0) RingR.DebugTouch();
-            }*/
+            }
+            */
         }
     }
 }
