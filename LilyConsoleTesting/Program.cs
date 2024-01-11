@@ -10,6 +10,13 @@ namespace LilyConsoleTesting
         {
             while (true)
             {
+                Console.WriteLine("Pick an option:");
+                Console.WriteLine("1) combined touch");
+                Console.WriteLine("2) touch left");
+                Console.WriteLine("3) touch right");
+                Console.WriteLine("4) vfd");
+                Console.WriteLine("5) lights");
+                Console.WriteLine("6) card reader");
                 var choice = Console.ReadKey(true);
 
                 switch (choice.KeyChar)
