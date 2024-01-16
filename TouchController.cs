@@ -195,6 +195,7 @@ namespace LilyConsole
         {
             if (port.IsOpen) return;
             port.Open();
+            ShutUpPlease();
             GetSyncVersion();
             GetUnitVersion();
         }
@@ -217,6 +218,18 @@ namespace LilyConsole
             unitVersions = new string[6];
             port.Close();
         }
+
+        /// <summary>
+        /// <b>THIS IS A HACK.</b> We can get the sync board to stop streaming data by asking it for the sync board
+        /// version repeatedly. This is certainly not a good solution, but it works.
+        /// </summary>
+        private void ShutUpPlease()
+        {
+            SendCommand(Command.GET_SYNC_BOARD_VER);
+            SendCommand(Command.GET_SYNC_BOARD_VER);
+            SendCommand(Command.GET_SYNC_BOARD_VER);
+            port.DiscardInBuffer();
+        }
         
         /// <summary>
         /// Asks the Sync Board to return it's version string.
@@ -224,8 +237,8 @@ namespace LilyConsole
         /// </summary>
         private void GetSyncVersion()
         {
-            SendCommand(Command.GET_SYNC_BOARD_VER);
             port.DiscardInBuffer();
+            SendCommand(Command.GET_SYNC_BOARD_VER);
             syncVersion = Encoding.ASCII.GetString(ReadData(8).Data);
         }
 
