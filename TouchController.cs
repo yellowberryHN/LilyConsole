@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO.Ports;
 using System.Text;
+using System.Threading;
 
 namespace LilyConsole
 {
@@ -208,9 +209,8 @@ namespace LilyConsole
         public void Close()
         {
             if (!port.IsOpen) return;
-            // TODO: make this tell the panels to shut the fuck up.
             port.DataReceived -= DataReceived;
-            streamMode = false;
+            ShutUpPlease();
             touchData = new bool[4, 30];
             segments.Clear();
             loopState = 0;
@@ -221,14 +221,14 @@ namespace LilyConsole
 
         /// <summary>
         /// <b>THIS IS A HACK.</b> We can get the sync board to stop streaming data by asking it for the sync board
-        /// version repeatedly. This is certainly not a good solution, but it works.
+        /// version and then waiting a bit. This is certainly not a good solution, but it works.
         /// </summary>
         private void ShutUpPlease()
         {
             SendCommand(Command.GET_SYNC_BOARD_VER);
-            SendCommand(Command.GET_SYNC_BOARD_VER);
-            SendCommand(Command.GET_SYNC_BOARD_VER);
+            Thread.Sleep(20);
             port.DiscardInBuffer();
+            streamMode = false;
         }
         
         /// <summary>
@@ -237,7 +237,6 @@ namespace LilyConsole
         /// </summary>
         private void GetSyncVersion()
         {
-            port.DiscardInBuffer();
             SendCommand(Command.GET_SYNC_BOARD_VER);
             syncVersion = Encoding.ASCII.GetString(ReadData(8).Data);
         }
@@ -287,9 +286,12 @@ namespace LilyConsole
             Console.WriteLine($"Mirrored input: {isRight}");
             Console.WriteLine($"Sync Board version: {syncVersion}");
             Console.WriteLine($"Unit Board versions: {string.Join(",",unitVersions)}");
-            Console.WriteLine("===");
-            Console.WriteLine($"Loop state: {loopState}");
-            Console.WriteLine($"Currently touched segments: {segments.Count}");
+            if(streamMode)
+            {
+                Console.WriteLine("===");
+                Console.WriteLine($"Loop state: {loopState}");
+                Console.WriteLine($"Currently touched segments: {segments.Count}");
+            }
         }
 
         /// <summary>
@@ -319,6 +321,7 @@ namespace LilyConsole
         /// Retrieves the latest touch data from the panels.
         /// The data is also used to update <see cref="touchData"/> every time this is called.
         /// </summary>
+        /// <remarks>This method is very tempermental, it cannot handle any data outside of what it expects.</remarks>
         /// <returns>The latest touch data in a multi-dimensional array (4x30).</returns>
         /// <exception cref="Exception">
         /// If the provided command or read data is not touch data an exception will be thrown.
