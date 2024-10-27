@@ -1,13 +1,28 @@
 ﻿using LilyConsole;
 using System;
-using System.Net.NetworkInformation;
+using System.Runtime.InteropServices;
+using LilyConsole.Helpers;
 
 namespace LilyConsoleTesting
 {
     internal class Program
     {
+        private delegate bool ConsoleCtrlHandlerDelegate(int sig);
+
+        [DllImport("Kernel32")]
+        private static extern bool SetConsoleCtrlHandler(ConsoleCtrlHandlerDelegate handler, bool add);
+
+        static ConsoleCtrlHandlerDelegate _consoleCtrlHandler;
+        
         public static void Main(string[] args)
         {
+            _consoleCtrlHandler += s =>
+            {
+                CleanUp();
+                return false;   
+            };
+            SetConsoleCtrlHandler(_consoleCtrlHandler, true);
+            
             while (true)
             {
                 Console.WriteLine("Pick an option:");
@@ -17,6 +32,7 @@ namespace LilyConsoleTesting
                 Console.WriteLine("4) vfd");
                 Console.WriteLine("5) lights");
                 Console.WriteLine("6) card reader");
+                Console.WriteLine("7) combined touch with lights");
                 var choice = Console.ReadKey(true);
 
                 switch (choice.KeyChar)
@@ -36,8 +52,21 @@ namespace LilyConsoleTesting
                     case '5':
                         LightTest();
                         break;
+                    case '6':
+                        ReaderTest();
+                        break;
+                    case '7':
+                        TouchCombinedTestWithLights();
+                        break;
                 }
             }
+        }
+
+        // this is not a proper way to do things, don't do this.
+        public static void CleanUp()
+        {
+            USBIntLED.Safe_USBIntLED_set(0, (LedData)new LightFrame());
+            USBIntLED.Safe_USBIntLED_Terminate();
         }
 
         public static void TouchLTest()
@@ -86,6 +115,29 @@ namespace LilyConsoleTesting
                 controller.DebugTouch();
             }
         }
+        
+        public static void TouchCombinedTestWithLights()
+        {
+            var controller = new TouchController();
+            controller.Initialize();
+            Console.CursorVisible = false;
+            Console.WriteLine("Starting touch streams!");
+            controller.StartTouchStream();
+            Console.WriteLine("Started!");
+            
+            var lights = new LightController();
+            if (!lights.Initialize())
+            {
+                Console.WriteLine("Failed to load lights!");
+            };
+            
+            while (true)
+            {
+                controller.GetTouchData();
+                lights.SendLightFrame(new LightFrame(), controller.segments);
+                controller.DebugTouch();
+            }
+        }
 
         public static void VFDTest()
         {
@@ -98,7 +150,25 @@ namespace LilyConsoleTesting
         public static void LightTest()
         {
             var lights = new LightController();
-            lights.Initialize();
+            if (!lights.Initialize())
+            {
+                Console.WriteLine("Failed to load lights!");
+            };
+
+            var testFrame = new LightFrame(LightColor.Green);
+
+            lights.SendLightFrame(testFrame);
+            
+            Console.ReadKey();
+            
+            lights.SendLightFrame(new LightFrame(LightColor.Red));
+        }
+
+        public static void ReaderTest()
+        {
+            var reader = new ReaderController();
+            reader.Initialize();
+            reader.SetColor(LightColor.Green);
         }
     }
 }

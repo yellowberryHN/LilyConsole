@@ -32,6 +32,7 @@ namespace LilyConsole
         /// </summary>
         /// <param name="leftPort">The name passed to <see cref="SerialPort"/> for the left side of the console.</param>
         /// <param name="rightPort">The name passed to <see cref="SerialPort"/> for the right side of the console.</param>
+        /// <exception cref="System.IO.IOException">Will be thrown if serial port was not found.</exception>
         public TouchController(string leftPort = "COM4", string rightPort = "COM3")
         {
             RingL = new TouchManager(leftPort, 'L');
@@ -134,7 +135,7 @@ namespace LilyConsole
             for (var i = 0; i < packet.Length - 1; i++)
                 chk ^= packet[i];
             chk ^= 128;
-            return packet[packet.Length-1] == chk;
+            return packet[packet.Length - 1] == chk;
         }
     }
 
@@ -177,7 +178,8 @@ namespace LilyConsole
         
         /// <param name="portName">The name passed to <see cref="SerialPort"/> for the specified side of the console.</param>
         /// <param name="letter">The letter code of the side. Must be 'L' or 'R'.</param>
-        /// <exception cref="Exception">An exception will be thrown if the letter code is not 'L' or 'R'.</exception>
+        /// <exception cref="Exception">Will be thrown if the letter code is not 'L' or 'R'.</exception>
+        /// <exception cref="System.IO.IOException">Will be thrown if serial port was not found.</exception>
         public TouchManager(string portName, char letter)
         {
             this.letter = char.ToUpper(letter);
@@ -225,24 +227,24 @@ namespace LilyConsole
         /// </summary>
         private void ShutUpPlease()
         {
-            SendCommand(Command.GET_SYNC_BOARD_VER);
+            SendCommand(TouchCommandType.GET_SYNC_BOARD_VER);
             Thread.Sleep(20);
             port.DiscardInBuffer();
             streamMode = false;
         }
         
         /// <summary>
-        /// Asks the Sync Board to return it's version string.
+        /// Asks the Sync Board to return its version string.
         /// As a consequence of sending this command, all touch data communications are halted if they are being sent.
         /// </summary>
         private void GetSyncVersion()
         {
-            SendCommand(Command.GET_SYNC_BOARD_VER);
+            SendCommand(TouchCommandType.GET_SYNC_BOARD_VER);
             syncVersion = Encoding.ASCII.GetString(ReadData(8).Data);
         }
 
         /// <summary>
-        /// Asks the Sync Board to provide all of the information about the Unit Boards as well as which side it is.
+        /// Asks the Sync Board to provide all the information about the Unit Boards as well as which side it is.
         /// </summary>
         /// <exception cref="Exception">
         /// Due to the assumptions we make depending on which side we are talking to, if the Sync Board reports
@@ -250,7 +252,7 @@ namespace LilyConsole
         /// </exception>
         private void GetUnitVersion()
         {
-            SendCommand(Command.GET_UNIT_BOARD_VER);
+            SendCommand(TouchCommandType.GET_UNIT_BOARD_VER);
             var info = Encoding.ASCII.GetString(ReadData(45).Data);
             syncVersion = info.Substring(0, 6);
             if (info[6] != letter) throw new Exception("Sync Board disagrees which side it is!");
@@ -268,9 +270,9 @@ namespace LilyConsole
         public void StartTouchStream()
         {
             // magic bytes, what do they do?????? who knows.
-            SendData(new byte[] { (byte)Command.START_AUTO_SCAN, 0x7F, 0x3F, 0x64, 0x28, 0x44, 0x3B, 0x3A });
+            SendData(new byte[] { (byte)TouchCommandType.START_AUTO_SCAN, 0x7F, 0x3F, 0x64, 0x28, 0x44, 0x3B, 0x3A });
             var ack = ReadData(3); // read ack
-            if (ack.Command != (byte)Command.START_AUTO_SCAN)
+            if (ack.Command != (byte)TouchCommandType.START_AUTO_SCAN)
                 throw new Exception("Start Scan message was not acknowledged.");
             streamMode = true;
             port.DataReceived += DataReceived;
@@ -321,7 +323,7 @@ namespace LilyConsole
         /// Retrieves the latest touch data from the panels.
         /// The data is also used to update <see cref="touchData"/> every time this is called.
         /// </summary>
-        /// <remarks>This method is very tempermental, it cannot handle any data outside of what it expects.</remarks>
+        /// <remarks>This method is very temperamental, it cannot handle any data outside what it expects.</remarks>
         /// <returns>The latest touch data in a multi-dimensional array (4x30).</returns>
         /// <exception cref="Exception">
         /// If the provided command or read data is not touch data an exception will be thrown.
@@ -330,7 +332,7 @@ namespace LilyConsole
         {
             segments.Clear();
             var raw = stream ?? ReadData(36);
-            if (raw.Command != (byte)Command.TOUCH_DATA) throw new Exception("that's not touch data.");
+            if (raw.Command != (byte)TouchCommandType.TOUCH_DATA) throw new Exception("that's not touch data.");
 
             this.touchData = new bool[4, 30];
 
@@ -361,7 +363,7 @@ namespace LilyConsole
         /// Sends a command to the Sync Board.
         /// </summary>
         /// <param name="data">The <see cref="Command"/> to send.</param>
-        private void SendCommand(Command data)
+        private void SendCommand(TouchCommandType data)
         {
             SendData(new[]{(byte)data});
         }
@@ -430,28 +432,10 @@ namespace LilyConsole
             Checksum = raw[raw.Length - 1];
             Buffer.BlockCopy(raw, 1, Data, 0, Data.Length);
         }
-    }
 
-    /// send the unknown ones at your own peril.
-    public enum Command
-    {
-        NEXT_WRITE = 0x20,
-        UNKNOWN_6 = 0x6F,
-        UNKNOWN_7 = 0x71,
-        NEXT_READ = 0x72,
-        BEGIN_WRITE = 0x77,
-        TOUCH_DATA = 0x81,
-        UNKNOWN_4 = 0x91,
-        UNKNOWN_5 = 0x93,
-        UNKNOWN_2 = 0x94,
-        GET_SYNC_BOARD_VER = 0xA0,
-        UNKNOWN_1 = 0xA2,
-        UNKNOWN_READ = 0xA3,
-        GET_UNIT_BOARD_VER = 0xA8,
-        UNKNOWN_3 = 0xA9,
-        UNKNOWN_10 = 0xBC,
-        UNKNOWN_9 = 0xC0,
-        UNKNOWN_8 = 0xC1,
-        START_AUTO_SCAN = 0xC9,
+        public static explicit operator TouchCommand(byte[] raw)
+        {
+            return new TouchCommand(raw);
+        }
     }
 }

@@ -1,6 +1,10 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Text;
 using System.IO.Ports;
+using System.Runtime.InteropServices;
+using System.Drawing;
+using System.Drawing.Imaging;
 
 namespace LilyConsole
 {
@@ -16,6 +20,7 @@ namespace LilyConsole
         /// Establish a connection to a VFD, and prepare it for use.
         /// </summary>
         /// <param name="portName">The name passed to <see cref="SerialPort"/> for the VFD.</param>
+        /// <exception cref="System.IO.IOException">Will be thrown if serial port was not found.</exception>
         public VFDController(string portName = "COM2")
         {
             port = new SerialPort(portName, 115200);
@@ -25,7 +30,7 @@ namespace LilyConsole
         /// Initializes the display and sets some sane default settings.
         /// </summary>
         /// <remarks>
-        /// Note that you may see the display flicker for a moment when running this.
+        /// Note that you may see the display flash for a moment when running this.
         /// This is due to the fact that the display must be powered on to change settings.
         /// </remarks>
         public void Initialize()
@@ -52,45 +57,24 @@ namespace LilyConsole
             Console.WriteLine(BitConverter.ToString(bytes));
             port.Write(bytes, 0, bytes.Length);
         }
+        
+        private void RawWrite(short x)
+        {
+            byte hi = (byte)((x & 0x100) >> 8);
+            byte lo = (byte)(x & 0xFF);
+            RawWrite(new[] {hi, lo});
+        }
 
         private void RawWrite(string text)
         {
-            // Get correct encoding for current language
-            int codeNumber;
-            switch(language)
-            {
-                case Lang.SIMP_CHINESE:
-                    codeNumber = 936; // GB2312
-                    break;
-                case Lang.TRAD_CHINESE:
-                    codeNumber = 950; // Big5
-                    break;
-                case Lang.JAPANESE:
-                    codeNumber = 932; // Shift-JIS
-                    break;
-                case Lang.KOREAN:
-                    codeNumber = 949; // KSC5601
-                    break;
-                default:
-                    codeNumber = 932;
-                    break;
-            }
-
-            // Convert Unicode string to encoded bytes
             Encoding unicodeEncoding = Encoding.Unicode;
-            Encoding correctEncoding = Encoding.GetEncoding(codeNumber);
+            Encoding correctEncoding = Encoding.GetEncoding(_langMap[language]);
+            
             byte[] unicodeBytes = unicodeEncoding.GetBytes(text);
             byte[] encodedBytes = Encoding.Convert(unicodeEncoding, correctEncoding, unicodeBytes);
 
-            Console.WriteLine(BitConverter.ToString(correctEncoding.GetBytes(text)));
+            Console.WriteLine(BitConverter.ToString(encodedBytes));
             port.Write(encodedBytes, 0, encodedBytes.Length);
-        }
-
-        private void RawWriteShort(short x)
-        {
-            byte hi = (byte)(((x) & 0x100) >> 8);
-            byte lo = (byte)((x) & 0xFF);
-            RawWrite(new byte[] {hi, lo});
         }
 
         /// <summary>
@@ -170,7 +154,7 @@ namespace LilyConsole
         public void CanvasShift(short left)
         {
             RawWrite(new byte[] { 0x1B, 0x22 });
-            RawWriteShort(left);
+            RawWrite(left);
         }
 
         /// <summary>
@@ -181,7 +165,7 @@ namespace LilyConsole
         public void Cursor(short left, byte top)
         {
             RawWrite(new byte[] { 0x1B, 0x30 });
-            RawWriteShort(left);
+            RawWrite(left);
             RawWrite(top);
         }
 
@@ -194,6 +178,14 @@ namespace LilyConsole
             JAPANESE,
             KOREAN
         }
+
+        private readonly Dictionary<Lang, int> _langMap = new Dictionary<Lang, int>()
+        {
+            { Lang.SIMP_CHINESE, 936 },
+            { Lang.TRAD_CHINESE, 950 },
+            { Lang.JAPANESE, 932 },
+            { Lang.KOREAN, 949 }
+        };
 
         /// <summary>
         /// Sets the current language of the VFD. Text written with another language active will still remain.
@@ -231,12 +223,12 @@ namespace LilyConsole
         public void CreateScrollBox(short left, byte top, short width, byte height)
         {
             RawWrite(new byte[] { 0x1B, 0x40 });
-            RawWriteShort(left);
+            RawWrite(left);
             RawWrite(top);
-            RawWriteShort(width);
+            RawWrite(width);
             RawWrite(height);
         }
-
+        
         /// <summary>
         /// The speed of the scrolling. The smaller the number, the faster.
         /// </summary>
@@ -268,11 +260,18 @@ namespace LilyConsole
             RawWrite(new byte[] { 0x1B, 0x51 });
         }
 
+        /// <summary>
+        /// Stop scrolling the text within the scroll box.
+        /// </summary>
+        /// <remarks>The scroll box must be first defined with <see cref="CreateScrollBox"/>.</remarks>
         public void ScrollStop()
         {
             RawWrite(new byte[] { 0x1B, 0x52 });
         }
 
+        /// <summary>
+        /// The type of blink to use for <see cref="BlinkSet"/>.
+        /// </summary>
         public enum BlinkMode
         {
             Off = 0,
@@ -280,11 +279,20 @@ namespace LilyConsole
             All = 2
         }
 
+        /// <summary>
+        /// Sets the blink type and interval for the screen.
+        /// </summary>
+        /// <param name="blink">The type of blink to use.</param>
+        /// <param name="interval">How quickly you want it to blink.</param>
         public void BlinkSet(BlinkMode blink, byte interval)
         {
             RawWrite(new byte[] { 0x1B, 0x23, (byte)blink, interval });
         }
 
+        /// <summary>
+        /// Clears a specific line.
+        /// </summary>
+        /// <param name="line">The line to clear.</param>
         public void ClearLine(byte line)
         {
             Cursor(0, line);
@@ -292,26 +300,23 @@ namespace LilyConsole
             Cursor(0, line);
         }
 
-        // TODO: bitmap drawing relies on GDI+, come up with a better solution
-        
-        /*
         public void DrawBitmap(Bitmap bmp, Point origin)
         {
-            if (bmp.PixelFormat != PixelFormat.Format1bppIndexed)
+            if (bmp == null || bmp.PixelFormat != PixelFormat.Format1bppIndexed)
                 throw new ArgumentException("Provided bitmap is not monochrome");
 
             // We have to do it this way because of a GDI+ bug.
             bmp.RotateFlip(RotateFlipType.Rotate270FlipNone);
             RotateNoneFlipYMono(bmp);
 
-            Rectangle bounds = new Rectangle(new Point(), bmp.Size);
+            var bounds = new Rectangle(new Point(), bmp.Size);
 
             var data = bmp.LockBits(bounds, ImageLockMode.ReadOnly, PixelFormat.Format1bppIndexed);
 
-            RawWrite("\x1B\x2E");
-            VFD_WriteShort((short)origin.X);
+            RawWrite(new byte[] { 0x1B, 0x2E });
+            RawWrite((short)origin.X);
             RawWrite((byte)origin.Y);
-            VFD_WriteShort((short)bmp.Height); // Inverted because image was flipped
+            RawWrite((short)bmp.Height); // Inverted because image was flipped
             RawWrite((byte)((bmp.Width / 8)-1));
 
             int bytes = ( bmp.Width * bmp.Height ) / 8;
@@ -325,6 +330,16 @@ namespace LilyConsole
             RawWrite(pixelData);
 
             bmp.UnlockBits(data);
+        }
+
+        /// <summary>
+        /// Cleans up after using the VFD.
+        /// </summary>
+        public void CleanUp()
+        {
+            Clear();
+            Reset();
+            PowerOff();
         }
 
         private static void RotateNoneFlipYMono(Bitmap bmp)
@@ -363,6 +378,13 @@ namespace LilyConsole
             Marshal.Copy(bytes, 0, bd.Scan0, size);
             bmp.UnlockBits(bd);
         }
-        */
+        
+        /// <summary>
+        /// Cleans up when the VFD controller is garbage collected.
+        /// </summary>
+        ~VFDController()
+        {
+            CleanUp();
+        }
     }
 }
