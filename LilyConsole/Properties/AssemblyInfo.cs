@@ -9,7 +9,7 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyConfiguration("")]
 [assembly: AssemblyCompany("YellowberryHN")]
 [assembly: AssemblyProduct("LilyConsole")]
-[assembly: AssemblyCopyright("Copyright © YellowberryHN 2023")]
+[assembly: AssemblyCopyright("Copyright © YellowberryHN 2024")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
 
