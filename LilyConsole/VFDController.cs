@@ -1,10 +1,13 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Text;
-using System.IO.Ports;
 using System.Runtime.InteropServices;
 using System.Drawing;
 using System.Drawing.Imaging;
+using System.IO.Ports;
+#if !NETFRAMEWORK
+using System.Runtime.Versioning;
+#endif
 
 namespace LilyConsole
 {
@@ -300,6 +303,9 @@ namespace LilyConsole
             Cursor(0, line);
         }
 
+        #if !NETFRAMEWORK
+        [SupportedOSPlatform("windows")]
+        #endif
         public void DrawBitmap(Bitmap bmp, Point origin)
         {
             if (bmp == null || bmp.PixelFormat != PixelFormat.Format1bppIndexed)
@@ -342,6 +348,9 @@ namespace LilyConsole
             PowerOff();
         }
 
+        #if !NETFRAMEWORK
+        [SupportedOSPlatform("windows")]
+        #endif
         private static void RotateNoneFlipYMono(Bitmap bmp)
         {
             if (bmp == null || bmp.PixelFormat != PixelFormat.Format1bppIndexed)

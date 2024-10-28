@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Generic;
-using FTD2XX_NET;
+using FTD2XX;
 using LilyConsole.Helpers;
 
 namespace LilyConsole

@@ -1,0 +1,15 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project>
+    <Sdk Name="Godot.NET.Sdk" Version="4.3.0" />
+    <Import Project="..\LilyConsole\LilyConsoleCommon.props" />
+    <PropertyGroup>
+        <AssemblyName>LilyConsole.Godot</AssemblyName>
+        <TargetFramework>net6.0</TargetFramework>
+        <DefineConstants>GODOT</DefineConstants>
+    </PropertyGroup>
+    <ItemGroup>
+        <PackageReference Include="HidSharp" Version="2.1.0" />
+        <PackageReference Include="System.Drawing.Common" Version="6.0.0" />
+        <PackageReference Include="System.IO.Ports" Version="6.0.0" />
+    </ItemGroup>
+</Project>

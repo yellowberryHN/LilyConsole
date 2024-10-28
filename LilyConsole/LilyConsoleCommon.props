@@ -1,0 +1,52 @@
+<Project>
+    <PropertyGroup>
+        <OutputType>Library</OutputType>
+        <AppDesignerFolder>Properties</AppDesignerFolder>
+        <RootNamespace>LilyConsole</RootNamespace>
+        <FileAlignment>512</FileAlignment>
+        <LangVersion>7.3</LangVersion>
+        <Nullable>disable</Nullable>
+        <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+        <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+        <PlatformTarget>AnyCPU</PlatformTarget>
+        <Prefer32Bit>false</Prefer32Bit>
+    </PropertyGroup>
+    <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+        <DebugSymbols>true</DebugSymbols>
+        <DebugType>full</DebugType>
+        <Optimize>false</Optimize>
+        <OutputPath>bin\Debug\</OutputPath>
+        <DefineConstants>DEBUG;TRACE</DefineConstants>
+        <ErrorReport>prompt</ErrorReport>
+        <WarningLevel>4</WarningLevel>
+    </PropertyGroup>
+    <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+        <PlatformTarget>AnyCPU</PlatformTarget>
+        <DebugType>pdbonly</DebugType>
+        <Optimize>true</Optimize>
+        <OutputPath>bin\Release\</OutputPath>
+        <DefineConstants>TRACE</DefineConstants>
+        <ErrorReport>prompt</ErrorReport>
+        <WarningLevel>4</WarningLevel>
+    </PropertyGroup>
+    <ItemGroup>
+        <Compile Include="$(SolutionDir)\LilyConsole\ReaderController.cs" />
+        <Compile Include="$(SolutionDir)\LilyConsole\LightController.cs" />
+        <Compile Include="$(SolutionDir)\LilyConsole\TouchController.cs" />
+        <Compile Include="$(SolutionDir)\LilyConsole\Properties\AssemblyInfo.cs" />
+        <Compile Include="$(SolutionDir)\LilyConsole\Types.cs" />
+        <Compile Include="$(SolutionDir)\LilyConsole\VFDController.cs" />
+    </ItemGroup>
+    <ItemGroup>
+        <Compile Include="$(SolutionDir)\LilyConsole\Helpers\USBIntLED.cs" />
+        <Compile Include="$(SolutionDir)\LilyConsole\Helpers\FTD2XX\FTD2XX.cs" />
+        <Compile Include="$(SolutionDir)\LilyConsole\Helpers\FTD2XX\Platform\IPlatformFuncs.cs" />
+        <Compile Include="$(SolutionDir)\LilyConsole\Helpers\FTD2XX\Platform\PlatformFuncs.cs" />
+    </ItemGroup>
+    <ItemGroup>
+        <Content Include="$(SolutionDir)\README.md" />
+    </ItemGroup>
+    <ItemGroup>
+        <None Remove="$(SolutionDir)\LilyConsole\lib\**" />
+    </ItemGroup>
+</Project>

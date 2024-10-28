@@ -1,8 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.IO.Ports;
 using System.Text;
 using System.Threading;
+using System.IO.Ports;
 
 namespace LilyConsole
 {
@@ -123,20 +123,6 @@ namespace LilyConsole
             Console.WriteLine($"Currently touched segments: {segments.Count,3}");
             Console.SetCursorPosition(Console.CursorLeft, Console.CursorTop - 7);
         }
-
-        /// <summary>
-        /// Validates the checksum on the end of a given full payload.
-        /// </summary>
-        /// <param name="packet">The bytes of the payload to be validated.</param>
-        /// <returns>The validity of the checksum</returns>
-        public static bool ValidateChecksum(byte[] packet)
-        {
-            byte chk = 0x00;
-            for (var i = 0; i < packet.Length - 1; i++)
-                chk ^= packet[i];
-            chk ^= 128;
-            return packet[packet.Length - 1] == chk;
-        }
     }
 
     public class TouchManager
@@ -187,7 +173,8 @@ namespace LilyConsole
             {
                 throw new Exception($"Letter {this.letter} is unknown to TouchManager.");
             }
-            this.port = new SerialPort(portName, 115200);
+            port = new SerialPort(portName, 115200);
+            port.ReadTimeout = 0;
         }
 
         /// <summary>
@@ -227,6 +214,9 @@ namespace LilyConsole
         /// </summary>
         private void ShutUpPlease()
         {
+            port.DiscardInBuffer();
+            SendCommand(TouchCommandType.GET_SYNC_BOARD_VER);
+            SendCommand(TouchCommandType.GET_SYNC_BOARD_VER);
             SendCommand(TouchCommandType.GET_SYNC_BOARD_VER);
             Thread.Sleep(20);
             port.DiscardInBuffer();
@@ -265,7 +255,7 @@ namespace LilyConsole
         /// <summary>
         /// Instructs the panels to start streaming touch data over the connection.
         /// </summary>
-        /// <exception cref="Exception">The <see cref="Command.START_AUTO_SCAN"/> message was not acknowledged,
+        /// <exception cref="Exception">The <see cref="TouchCommandType.START_AUTO_SCAN"/> message was not acknowledged,
         /// something went wrong.</exception>
         public void StartTouchStream()
         {
@@ -288,12 +278,10 @@ namespace LilyConsole
             Console.WriteLine($"Mirrored input: {isRight}");
             Console.WriteLine($"Sync Board version: {syncVersion}");
             Console.WriteLine($"Unit Board versions: {string.Join(",",unitVersions)}");
-            if(streamMode)
-            {
-                Console.WriteLine("===");
-                Console.WriteLine($"Loop state: {loopState}");
-                Console.WriteLine($"Currently touched segments: {segments.Count}");
-            }
+            if (!streamMode) return;
+            Console.WriteLine("===");
+            Console.WriteLine($"Loop state: {loopState}");
+            Console.WriteLine($"Currently touched segments: {segments.Count}");
         }
 
         /// <summary>
@@ -319,6 +307,19 @@ namespace LilyConsole
             Console.SetCursorPosition(Console.CursorLeft, Console.CursorTop-7);
         }
 
+        
+        /// <summary>
+        /// Retrieves the latest touch data from the panels.
+        /// The data is also used to update <see cref="touchData"/> every time this is called.
+        /// </summary>
+        /// <exception cref="Exception">
+        /// If read data is not touch data an exception will be thrown.
+        /// </exception>
+        private void GetTouchData()
+        {
+            ParseTouchData(ReadData(36));
+        }
+        
         /// <summary>
         /// Retrieves the latest touch data from the panels.
         /// The data is also used to update <see cref="touchData"/> every time this is called.
@@ -326,17 +327,20 @@ namespace LilyConsole
         /// <remarks>This method is very temperamental, it cannot handle any data outside what it expects.</remarks>
         /// <returns>The latest touch data in a multi-dimensional array (4x30).</returns>
         /// <exception cref="Exception">
-        /// If the provided command or read data is not touch data an exception will be thrown.
+        /// If the provided command is not touch data an exception will be thrown.
         /// </exception>
-        private bool[,] GetTouchData(TouchCommand stream = null)
+        private bool[,] ParseTouchData(TouchCommand stream)
         {
             segments.Clear();
-            var raw = stream ?? ReadData(36);
+            var raw = stream.Command != 0 ? stream : ReadData(36);
             if (raw.Command != (byte)TouchCommandType.TOUCH_DATA) throw new Exception("that's not touch data.");
 
+            if (loopState != raw.Data[raw.Data.Length - 1])
+                loopState = raw.Data[raw.Data.Length - 1];
+            else return this.touchData; // we got the same frame twice, duplicated data, don't care.
+            
             this.touchData = new bool[4, 30];
-
-            loopState = raw.Data[raw.Data.Length - 1];
+            
             Buffer.BlockCopy(raw.Data, 0, lastRawData, 0, 24);
             
             for (byte row = 0; row < 4; row++)
@@ -348,11 +352,10 @@ namespace LilyConsole
                     {
                         var active = (rowData & (1 << segment)) != 0;
                         
-                        var x = (byte)row;
                         var y = (byte)(segment + (panel * 5));
                         
-                        if (active) segments.Add(new ActiveSegment(x, y));
-                        this.touchData[x, y] = active;
+                        if (active) segments.Add(new ActiveSegment(row, y));
+                        this.touchData[row, y] = active;
                     }
                 }
             }
@@ -362,7 +365,7 @@ namespace LilyConsole
         /// <summary>
         /// Sends a command to the Sync Board.
         /// </summary>
-        /// <param name="data">The <see cref="Command"/> to send.</param>
+        /// <param name="data">The <see cref="TouchCommandType"/> to send.</param>
         private void SendCommand(TouchCommandType data)
         {
             SendData(new[]{(byte)data});
@@ -393,7 +396,7 @@ namespace LilyConsole
             }
             port.Read(raw, 0, size);
             
-            if (!TouchController.ValidateChecksum(raw))
+            if (!TouchCommand.ValidateChecksum(raw))
             {
                 throw new Exception("Checksum failure!");
             }
@@ -408,7 +411,6 @@ namespace LilyConsole
         /// </summary>
         private void DataReceived(object sender, SerialDataReceivedEventArgs e)
         {
-            // this is probably really stupid
             if (port.BytesToRead >= 36)
             {
                 GetTouchData();
@@ -419,7 +421,7 @@ namespace LilyConsole
     /// <summary>
     /// A wrapper for a touch board command.
     /// </summary>
-    public class TouchCommand
+    public struct TouchCommand
     {
         public byte Command;
         public byte[] Data;
@@ -432,10 +434,35 @@ namespace LilyConsole
             Checksum = raw[raw.Length - 1];
             Buffer.BlockCopy(raw, 1, Data, 0, Data.Length);
         }
+        
+        /// <summary>
+        /// Validates the checksum on the end of a given full payload.
+        /// </summary>
+        /// <param name="packet">The bytes of the payload to be validated.</param>
+        /// <returns>The validity of the checksum</returns>
+        public static bool ValidateChecksum(byte[] packet)
+        {
+            byte chk = 0x00;
+            for (var i = 0; i < packet.Length - 1; i++)
+                chk ^= packet[i];
+            chk ^= 128;
+            return packet[packet.Length - 1] == chk;
+        }
 
         public static explicit operator TouchCommand(byte[] raw)
         {
             return new TouchCommand(raw);
+        }
+
+        public static explicit operator byte[](TouchCommand cmd)
+        {
+            var raw = new byte[cmd.Data.Length + 2];
+
+            raw[0] = cmd.Command;
+            Buffer.BlockCopy(cmd.Data, 0, raw, 1, cmd.Data.Length);
+            raw[raw.Length - 1] = cmd.Checksum;
+            
+            return raw;
         }
     }
 }

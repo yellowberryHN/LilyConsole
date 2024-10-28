@@ -134,7 +134,7 @@ namespace LilyConsoleTesting
             while (true)
             {
                 controller.GetTouchData();
-                lights.SendLightFrame(new LightFrame(), controller.segments);
+                lights.SendLightFrame(new LightFrame(new LightColor(255, 0, 255)), controller.segments);
                 controller.DebugTouch();
             }
         }
