@@ -20,3 +20,4 @@ Thank you to everyone that has helped out in making this a reality. Here are peo
 - [cg505](https://github.com/cg505) - Providing code and assistance with lighting
 - [Yosh](https://github.com/yoshakami) - Testing the library and reporting issues
 - [FizzyApple12](https://github.com/FizzyApple12), [BlackDragon-B](https://github.com/BlackDragon-B) - Reversing and documenting the touch protocol
+- [mv1f](https://github.com/mv1f), [Sucareto](https://github.com/Sucareto), [whowechina](https://github.com/whowechina) - Documenting and implementing the Aime reader protocol, in various directions

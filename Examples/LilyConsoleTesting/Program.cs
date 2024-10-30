@@ -1,6 +1,8 @@
 ﻿using LilyConsole;
 using System;
 using System.Runtime.InteropServices;
+using System.Text;
+using System.Threading;
 using LilyConsole.Helpers;
 
 namespace LilyConsoleTesting
@@ -33,6 +35,7 @@ namespace LilyConsoleTesting
                 Console.WriteLine("5) lights");
                 Console.WriteLine("6) card reader");
                 Console.WriteLine("7) combined touch with lights");
+                Console.WriteLine("8) card reader color test");
                 var choice = Console.ReadKey(true);
 
                 switch (choice.KeyChar)
@@ -58,6 +61,9 @@ namespace LilyConsoleTesting
                     case '7':
                         TouchCombinedTestWithLights();
                         break;
+                    case '8':
+                        ReaderColorTest();
+                        break;
                 }
             }
         }
@@ -71,7 +77,7 @@ namespace LilyConsoleTesting
 
         public static void TouchLTest()
         {
-            var RingL = new TouchManager("COM4", 'L');
+            var RingL = new SyncBoardController("COM4", 'L');
 
             RingL.Initialize();
             RingL.DebugInfo();
@@ -87,7 +93,7 @@ namespace LilyConsoleTesting
 
         public static void TouchRTest()
         {
-            var RingR = new TouchManager("COM3", 'R');
+            var RingR = new SyncBoardController("COM3", 'R');
 
             RingR.Initialize();
             RingR.DebugInfo();
@@ -162,13 +168,79 @@ namespace LilyConsoleTesting
             Console.ReadKey();
             
             lights.SendLightFrame(new LightFrame(LightColor.Red));
+
+            /*
+            Console.ReadKey();
+
+            var gradientFrame = new LightFrame
+            {
+                layers =
+                {
+                    [0] = LightPatternGenerator.Gradient(LightColor.Blue, LightColor.Red)
+                }
+            };
+
+            lights.SendLightFrame(gradientFrame);
+            */
+
+            Console.ReadKey();
+            
+            lights.SendLightFrame(new LightFrame());
         }
 
         public static void ReaderTest()
         {
             var reader = new ReaderController();
             reader.Initialize();
-            reader.SetColor(LightColor.Green);
+            Console.WriteLine("Reader started!");
+            reader.SetColor(LightColor.White);
+            reader.DebugMode = Console.ReadKey(true).Key == ConsoleKey.D;
+            reader.SetColor(LightColor.Blue);
+            reader.RadioOn(); // very important step
+            Console.WriteLine("Polling!");
+            while (reader.lastPoll.Count == 0 || Console.KeyAvailable)
+            {
+                Thread.Sleep(500); // minimum recommended delay is 150ms
+                Console.Write('.');
+                reader.Poll();
+            }
+            Console.WriteLine(Environment.NewLine);
+            try
+            {
+                var cardInfo = reader.ReadCardInfo();
+                Console.WriteLine($"Access Code: {cardInfo}");
+                reader.SetColor(LightColor.Green);
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine($"Couldn't read card: {e.Message}");
+                reader.SetColor(LightColor.Red);
+            }
+            Thread.Sleep(2000);
+            reader.Close();
+        }
+
+        public static void ReaderColorTest()
+        {
+            var reader = new ReaderController();
+            reader.Initialize();
+            Console.WriteLine("Reader started!");
+            Console.WriteLine("Debug?");
+            reader.DebugMode = Console.ReadKey(true).Key == ConsoleKey.D;
+            
+            float time = 0;
+            const float cyclePeriod = 2 * (float)Math.PI;
+            
+            while (true)
+            {
+                var r = (byte)(127.5 * (Math.Sin(time) + 1));
+                var g = (byte)(127.5 * (Math.Sin(time + 2 * Math.PI / 3) + 1));
+                var b = (byte)(127.5 * (Math.Sin(time + 4 * Math.PI / 3) + 1));
+                reader.SetColor(r, g, b);
+                
+                time += 0.0005f; 
+                if (time >= cyclePeriod) time -= cyclePeriod;
+            }
         }
     }
 }

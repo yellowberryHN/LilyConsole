@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Text;
 using LilyConsole.Helpers;
 #if UNITY
 using UnityEngine;
@@ -168,6 +170,11 @@ namespace LilyConsole
         #endif
         {
             _layers[0].colors = colors;
+        }
+
+        public void AddLayer(LightLayer layer)
+        {
+            layers.Add(layer);
         }
         
         public void AddTouchData(List<ActiveSegment> segments)
@@ -353,6 +360,209 @@ namespace LilyConsole
             
             return touchLayer;
         }
+    }
+    
+    #endregion
+    
+    #region Reader
+    
+    public struct ReaderCommand
+    {
+        public ReaderCommandType command;
+        public byte[] payload;
+
+        public ReaderCommand(ReaderCommandType cmd)
+        {
+            this.command = cmd;
+            this.payload = new byte[0];
+        }
+
+        public ReaderCommand(ReaderCommandType cmd, byte[] payload)
+        {
+            this.command = cmd;
+            this.payload = payload;
+        }
+
+        public static byte MakeChecksum(byte[] array)
+        {
+            byte chk = 0x00;
+            for (var i = 0; i < array.Length - 1; i++)
+            {
+                unchecked { chk += array[i]; }
+            }
+            return chk;
+        }
+
+        public static byte[] EscapeBytes(byte[] bytes)
+        {
+            var result = new List<byte>();
+
+            foreach (var b in bytes)
+            {
+                if (b == 0xd0 || b == 0xe0)
+                {
+                    result.Add(0xd0);
+                    result.Add((byte)(b - 1));
+                }
+                else result.Add(b);
+            }
+
+            return result.ToArray();
+        }
+
+        public static byte[] UnescapeBytes(byte[] bytes)
+        {
+            var result = new List<byte>();
+            var needsEscape = false;
+
+            foreach (var b in bytes)
+            {
+                if (needsEscape)
+                {
+                    result.Add((byte)(b + 1));
+                    needsEscape = false;
+                }
+                else
+                {
+                    if (b == 0xd0) needsEscape = true;
+                    else result.Add(b);
+                }
+            }
+
+            return result.ToArray();
+        }
+    }
+
+    public enum ReaderCommandType
+    {
+        GetFirmwareVersion = 0x30,
+        GetHardwareVersion = 0x32,
+        RadioOn = 0x40,
+        RadioOff = 0x41,
+        CardPoll = 0x42,
+        MifareSelectCard = 0x43,
+        MifareSelectCardLong = 0x44,
+        MifareSetKeyA = 0x50,
+        MifareAuthKeyA = 0x51,
+        MifareReadBlock = 0x52,
+        MifareWriteBlock = 0x53,
+        MifareSetKeyB = 0x54,
+        MifareAuthKeyB = 0x55,
+        Reset = 0x62,
+        FeliCa1 = 0x70,
+        FeliCa2 = 0x71,
+        LightSetChannel = 0x80,
+        LightSetColor = 0x81,
+        LightGetInfo = 0xF0,
+        LightGetVersion = 0xF1,
+        LightReset = 0xF5,
+    }
+    
+    public struct ReaderResponse
+    {
+        public ReaderCommandType command;
+        public ReaderResponseStatus status;
+        public byte[] payload;
+
+        public ReaderResponse(byte[] raw)
+        {
+            if (raw[0] != 0xe0) throw new Exception($"Invalid response (read {raw[0]:X2}, expected E0)");
+            command = (ReaderCommandType)raw[4];
+            status = (ReaderResponseStatus)raw[5];
+            payload = new byte[raw[6]];
+            if (raw[6] != 0) Array.Copy(raw, 7, payload, 0, payload.Length);
+        }
+
+        public override string ToString()
+        {
+            return $"ReaderResponse: {command} ({status}) {{{BitConverter.ToString(payload)}}} [{payload.Length}]";
+        }
+    }
+
+    public struct ReaderCard
+    {
+        public ReaderCardType type;
+        
+        // Mifare
+        public readonly byte[] uid;
+        public byte[] accessCode;
+        
+        // FeliCa
+        public readonly byte[] idm;
+        public readonly byte[] pmm;
+        
+        public ReaderCard(ReaderCardType type, byte[] data)
+        {
+            this.type = type;
+            this.uid = this.idm = this.pmm = this.accessCode = new byte[0];
+
+            switch (type)
+            {
+                case ReaderCardType.Mifare:
+                    this.uid = data;
+                    break;
+                case ReaderCardType.FeliCa:
+                    Array.Copy(data, 0, this.idm, 0, 8);
+                    Array.Copy(data, 8, this.pmm, 0, 8);
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(type), type, null);
+            }
+        }
+
+        public override string ToString()
+        {
+            switch (type)
+            {
+                case ReaderCardType.Mifare:
+                    if (accessCode.Length != 10) throw new InvalidDataException("Access code is not valid");
+                    
+                    var sb = new StringBuilder();
+                    for (var i = 0; i < 10; i += 2)
+                    {
+                        sb.AppendFormat("{0:X2}{1:X2}", accessCode[i], accessCode[i + 1]);
+                        if (i < 8) sb.Append('-');
+                    }
+
+                    return sb.ToString();
+                case ReaderCardType.FeliCa:
+                    if (idm.Length != 8) throw new InvalidDataException("IDm is not valid");
+                    
+                    var bytes = idm;
+                    if (BitConverter.IsLittleEndian) Array.Reverse(idm);
+                    
+                    // perpetuating the heinous misnomer of an "0008" code
+                    return BitConverter.ToUInt64(bytes, 0).ToString().PadLeft(20, '0');
+                default:
+                    throw new ArgumentException("Invalid card type");
+            }
+        }
+    }
+    
+    public enum ReaderResponseStatus
+    {
+        Ok = 0x00,
+        CardError = 0x01,
+        NotAccepted = 0x02,
+        InvalidCommand = 0x03,
+        InvalidData = 0x04,
+        ChecksumError = 0x05,
+        InternalError = 0x06
+    }
+
+    [Flags]
+    public enum ReaderCardType
+    {
+        Mifare = 1,
+        FeliCa = 2
+    }
+
+    [Flags]
+    public enum ReaderColorChannel
+    {
+        Red = 0x1,
+        Green = 0x2,
+        Blue = 0x4
     }
     
     #endregion

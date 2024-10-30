@@ -11,11 +11,11 @@ namespace LilyConsole
         /// <summary>
         /// Manager for the left side of the console.
         /// </summary>
-        private TouchManager RingL;
+        private SyncBoardController RingL;
         /// <summary>
         /// Manager for the right side of the console.
         /// </summary>
-        private TouchManager RingR;
+        private SyncBoardController RingR;
 
         /// <summary>
         /// The last retrieved touch information as a multi-dimensional array (4x60).
@@ -35,8 +35,8 @@ namespace LilyConsole
         /// <exception cref="System.IO.IOException">Will be thrown if serial port was not found.</exception>
         public TouchController(string leftPort = "COM4", string rightPort = "COM3")
         {
-            RingL = new TouchManager(leftPort, 'L');
-            RingR = new TouchManager(rightPort, 'R');
+            RingL = new SyncBoardController(leftPort, 'L');
+            RingR = new SyncBoardController(rightPort, 'R');
         }
 
         /// <summary>
@@ -125,7 +125,7 @@ namespace LilyConsole
         }
     }
 
-    public class TouchManager
+    public class SyncBoardController
     {
         private SerialPort port;
 
@@ -166,7 +166,7 @@ namespace LilyConsole
         /// <param name="letter">The letter code of the side. Must be 'L' or 'R'.</param>
         /// <exception cref="Exception">Will be thrown if the letter code is not 'L' or 'R'.</exception>
         /// <exception cref="System.IO.IOException">Will be thrown if serial port was not found.</exception>
-        public TouchManager(string portName, char letter)
+        public SyncBoardController(string portName, char letter)
         {
             this.letter = char.ToUpper(letter);
             if (this.letter != 'R' && this.letter != 'L')
@@ -341,7 +341,7 @@ namespace LilyConsole
             
             this.touchData = new bool[4, 30];
             
-            Buffer.BlockCopy(raw.Data, 0, lastRawData, 0, 24);
+            Array.Copy(raw.Data, 0, lastRawData, 0, 24);
             
             for (byte row = 0; row < 4; row++)
             {
@@ -432,7 +432,7 @@ namespace LilyConsole
             Data = new byte[raw.Length - 2];
             Command = raw[0];
             Checksum = raw[raw.Length - 1];
-            Buffer.BlockCopy(raw, 1, Data, 0, Data.Length);
+            Array.Copy(raw, 1, Data, 0, Data.Length);
         }
         
         /// <summary>
@@ -459,7 +459,7 @@ namespace LilyConsole
             var raw = new byte[cmd.Data.Length + 2];
 
             raw[0] = cmd.Command;
-            Buffer.BlockCopy(cmd.Data, 0, raw, 1, cmd.Data.Length);
+            Array.Copy(cmd.Data, 0, raw, 1, cmd.Data.Length);
             raw[raw.Length - 1] = cmd.Checksum;
             
             return raw;

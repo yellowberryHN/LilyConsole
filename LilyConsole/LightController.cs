@@ -41,7 +41,6 @@ namespace LilyConsole
             
             handler = LightHandlerType.FTD2XX;
             // TODO: try to do FTD2XX stuff here
-            if(false) return true;
 
             handler = LightHandlerType.Off;
             return false;
