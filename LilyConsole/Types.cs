@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using System.Text.RegularExpressions;
 using LilyConsole.Helpers;
 #if UNITY
 using UnityEngine;
@@ -523,16 +524,26 @@ namespace LilyConsole
                         sb.AppendFormat("{0:X2}{1:X2}", accessCode[i], accessCode[i + 1]);
                         if (i < 8) sb.Append('-');
                     }
-
+                    
                     return sb.ToString();
                 case ReaderCardType.FeliCa:
                     if (idm.Length != 8) throw new InvalidDataException("IDm is not valid");
+
+                    string code;
                     
-                    var bytes = idm;
-                    if (BitConverter.IsLittleEndian) Array.Reverse(idm);
+                    try
+                    {
+                        code = AmuseIC.GetID(idm);
+                    }
+                    catch (ArgumentException e)
+                    {
+                        // only use "0008" code when the card is not recognized as an AIC
+                        var bytes = idm;
+                        if (BitConverter.IsLittleEndian) Array.Reverse(idm);
+                        code = BitConverter.ToUInt64(bytes, 0).ToString().PadLeft(20, '0');
+                    }
                     
-                    // perpetuating the heinous misnomer of an "0008" code
-                    return BitConverter.ToUInt64(bytes, 0).ToString().PadLeft(20, '0');
+                    return Regex.Replace(code, ".{4}", "$0 ");
                 default:
                     throw new ArgumentException("Invalid card type");
             }

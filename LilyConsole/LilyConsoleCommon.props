@@ -44,6 +44,10 @@
         <Compile Include="$(SolutionDir)\LilyConsole\Helpers\FTD2XX\Platform\PlatformFuncs.cs" />
     </ItemGroup>
     <ItemGroup>
+        <Compile Include="$(SolutionDir)\LilyConsole\Helpers\LightPatternGenerator.cs" />
+        <Compile Include="$(SolutionDir)\LilyConsole\Helpers\AmuseIC.cs" />
+    </ItemGroup>
+    <ItemGroup>
         <Content Include="$(SolutionDir)\README.md" />
     </ItemGroup>
     <ItemGroup>
