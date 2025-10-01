@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Text;
 using System.Threading;
 using System.IO.Ports;
@@ -18,9 +19,27 @@ namespace LilyConsole
         private SyncBoardController RingR;
 
         /// <summary>
-        /// The last retrieved touch information as a multi-dimensional array (4x60).
+        /// The last retrieved touch information as a multidimensional array (4x60).
         /// </summary>
+        /// <remarks>Potentially subject to race conditions, depending on how you set up your touch polling.</remarks>
         public bool[,] touchData = new bool[4, 60];
+        
+        /// <summary>
+        /// Sets if the touchData buffer should be cleared before writing to it again.
+        /// Mostly relevant in cases of race conditions.
+        /// <list type="bullet">
+        /// <item><b>Enabled</b> — The buffer will be cleared, potential for dropped inputs</item>
+        /// <item><b>Disabled</b> — The buffer will not be cleared, potential for ghost inputs</item>
+        /// </list>
+        /// </summary>
+        public bool clearBuffer {
+            get => RingL.clearBuffer; // this shouldn't matter, they should be the same
+            set {
+                RingL.clearBuffer = value;
+                RingR.clearBuffer = value;
+            }
+        }
+        
         /// <summary>
         /// The last retrieved touch information as a list of coordinates.
         /// </summary>
@@ -82,7 +101,7 @@ namespace LilyConsole
             {
                 for (byte column = 0; column < 30; column++)
                 {
-                    if(this.touchData[row, column] = touchL[row, column])
+                    if(touchData[row, column] = touchL[row, column])
                     {
                         segments.Add(new ActiveSegment(row, column));
                     }
@@ -91,15 +110,20 @@ namespace LilyConsole
                 for (byte column = 0; column < 30; column++)
                 {
                     // mirror the right side to normalize the data.
-                    if(this.touchData[row, column + 30] = touchR[row, 29 - column])
+                    if(touchData[row, column + 30] = touchR[row, 29 - column])
                     {
                         segments.Add(new ActiveSegment(row, (byte)(column + 30)));
                     }
                 }
             }
 
-            return this.touchData;
+            return touchData;
         }
+        
+        /// <summary>
+        /// A <see cref="StringBuilder"/> used by <see cref="DebugTouch"/> to increase console performance.
+        /// </summary>
+        private readonly StringBuilder _debugSb = new StringBuilder();
 
         /// <summary>
         /// Debugging method, intended to be called from a loop to get realtime touch information as it changes.
@@ -110,15 +134,17 @@ namespace LilyConsole
         /// </remarks>
         public void DebugTouch()
         {
-            Console.WriteLine("Current Touch Frame:");
-            for (int row = 0; row < 4; row++)
+            _debugSb.Clear();
+            for (byte row = 0; row < 4; row++)
             {
-                for (int column = 0; column < 60; column++)
+                for (byte column = 0; column < 60; column++)
                 {
-                    Console.Write(touchData[row, column] ? "\u2588" : "\u2591");
+                    _debugSb.Append(touchData[row, column] ? "\u2588" : "\u2591");
                 }
-                Console.Write("\n");
+                _debugSb.Append("\n");
             }
+            Console.WriteLine("Current Touch Frame:");
+            Console.Write(_debugSb.ToString());
             Console.WriteLine($"Loop state: L: {RingL.loopState,3}, R: {RingR.loopState,3}");
             Console.WriteLine($"Currently touched segments: {segments.Count,3}");
             Console.SetCursorPosition(Console.CursorLeft, Console.CursorTop - 7);
@@ -147,10 +173,22 @@ namespace LilyConsole
         private byte[] lastRawData = new byte[24];
         
         /// <summary>
-        /// The last retrieved touch information as a multi-dimensional array (4x30).
+        /// The last retrieved touch information as a multidimensional array (4x30).
         /// The coordinates are relative to the inner top corner of their side being 0,0
         /// </summary>
+        /// <remarks>Potentially subject to race conditions, depending on how you set up your touch polling.</remarks>
         public bool[,] touchData = new bool[4,30];
+
+        /// <summary>
+        /// Sets if the touchData buffer should be cleared before writing to it again.
+        /// Mostly relevant in cases of race conditions.
+        /// <list type="bullet">
+        /// <item><b>Enabled</b> — The buffer will be cleared, potential for dropped inputs</item>
+        /// <item><b>Disabled</b> — The buffer will not be cleared, potential for ghost inputs</item>
+        /// </list>
+        /// </summary>
+        public bool clearBuffer = false;
+        
         /// <summary>
         /// The last retrieved touch information as a list of coordinates.
         /// </summary>
@@ -215,9 +253,9 @@ namespace LilyConsole
         private void ShutUpPlease()
         {
             port.DiscardInBuffer();
-            SendCommand(TouchCommandType.GET_SYNC_BOARD_VER);
-            SendCommand(TouchCommandType.GET_SYNC_BOARD_VER);
-            SendCommand(TouchCommandType.GET_SYNC_BOARD_VER);
+            SendCommand(TouchCommandType.GetSyncBoardVersion);
+            SendCommand(TouchCommandType.GetSyncBoardVersion);
+            SendCommand(TouchCommandType.GetSyncBoardVersion);
             Thread.Sleep(20);
             port.DiscardInBuffer();
             streamMode = false;
@@ -229,23 +267,23 @@ namespace LilyConsole
         /// </summary>
         private void GetSyncVersion()
         {
-            SendCommand(TouchCommandType.GET_SYNC_BOARD_VER);
+            SendCommand(TouchCommandType.GetSyncBoardVersion);
             syncVersion = Encoding.ASCII.GetString(ReadData(8).Data);
         }
 
         /// <summary>
         /// Asks the Sync Board to provide all the information about the Unit Boards as well as which side it is.
         /// </summary>
-        /// <exception cref="Exception">
+        /// <exception cref="InvalidDataException">
         /// Due to the assumptions we make depending on which side we are talking to, if the Sync Board reports
         /// that it isn't the side we think it is, this method will throw an exception.
         /// </exception>
         private void GetUnitVersion()
         {
-            SendCommand(TouchCommandType.GET_UNIT_BOARD_VER);
+            SendCommand(TouchCommandType.GetUnitBoardVersion);
             var info = Encoding.ASCII.GetString(ReadData(45).Data);
             syncVersion = info.Substring(0, 6);
-            if (info[6] != letter) throw new Exception("Sync Board disagrees which side it is!");
+            if (info[6] != letter) throw new InvalidDataException("Sync Board disagrees which side it is!");
             for (var i = 0; i < 6; i++)
             {
                 unitVersions[i] = info.Substring(7+(i*6), 6);
@@ -255,15 +293,17 @@ namespace LilyConsole
         /// <summary>
         /// Instructs the panels to start streaming touch data over the connection.
         /// </summary>
-        /// <exception cref="Exception">The <see cref="TouchCommandType.START_AUTO_SCAN"/> message was not acknowledged,
-        /// something went wrong.</exception>
+        /// <exception cref="InvalidDataException">
+        /// Thrown if the <see cref="TouchCommandType.StartAutoScan"/> message was not acknowledged,
+        /// something went wrong.
+        /// </exception>
         public void StartTouchStream()
         {
             // magic bytes, what do they do?????? who knows.
-            SendData(new byte[] { (byte)TouchCommandType.START_AUTO_SCAN, 0x7F, 0x3F, 0x64, 0x28, 0x44, 0x3B, 0x3A });
+            SendData(new byte[] { (byte)TouchCommandType.StartAutoScan, 0x7F, 0x3F, 0x64, 0x28, 0x44, 0x3B, 0x3A });
             var ack = ReadData(3); // read ack
-            if (ack.Command != (byte)TouchCommandType.START_AUTO_SCAN)
-                throw new Exception("Start Scan message was not acknowledged.");
+            if (ack.Command != (byte)TouchCommandType.StartAutoScan)
+                throw new InvalidDataException("Start Scan message was not acknowledged.");
             streamMode = true;
             port.DataReceived += DataReceived;
         }
@@ -285,6 +325,11 @@ namespace LilyConsole
         }
 
         /// <summary>
+        /// A <see cref="StringBuilder"/> used by <see cref="DebugTouch"/> to increase console performance.
+        /// </summary>
+        private readonly StringBuilder _debugSb = new StringBuilder();
+        
+        /// <summary>
         /// Debugging method, intended to be called from a loop to get realtime touch information as it changes.
         /// Outputs a graphic to the console of the current touch state.
         /// </summary>
@@ -293,17 +338,20 @@ namespace LilyConsole
         /// </remarks>
         public void DebugTouch()
         {
-            Console.WriteLine("Current Touch Frame:");
-            for (int row = 0; row < 4; row++)
+            _debugSb.Clear();
+            for (byte row = 0; row < 4; row++)
             {
-                for (int column = 0; column < 30; column++)
+                for (byte column = 0; column < 30; column++)
                 {
-                    Console.Write(touchData[row, column] ? "\u2588" : "\u2591");
+                    _debugSb.Append(touchData[row, column] ? "\u2588" : "\u2591");
                 }
-                Console.Write("\n");
+                _debugSb.Append("\n");
             }
+            
+            Console.WriteLine("Current Touch Frame:");
+            Console.Write(_debugSb.ToString());
             Console.WriteLine($"Loop state: {loopState,3}");
-            Console.WriteLine($"Currently touched segments: {segments.Count}");
+            Console.WriteLine($"Currently touched segments: {segments.Count,3}");
             Console.SetCursorPosition(Console.CursorLeft, Console.CursorTop-7);
         }
 
@@ -326,20 +374,22 @@ namespace LilyConsole
         /// </summary>
         /// <remarks>This method is very temperamental, it cannot handle any data outside what it expects.</remarks>
         /// <returns>The latest touch data in a multi-dimensional array (4x30).</returns>
-        /// <exception cref="Exception">
-        /// If the provided command is not touch data an exception will be thrown.
+        /// <exception cref="InvalidDataException">
+        /// Thrown if the provided command is not touch data (<see cref="TouchCommandType.TOUCH_DATA"/>).
         /// </exception>
         private bool[,] ParseTouchData(TouchCommand stream)
         {
             segments.Clear();
             var raw = stream.Command != 0 ? stream : ReadData(36);
-            if (raw.Command != (byte)TouchCommandType.TOUCH_DATA) throw new Exception("that's not touch data.");
+            if (raw.Command != (byte)TouchCommandType.TouchData) throw new InvalidDataException("that's not touch data.");
 
+            // check if we got the same frame twice, exceedingly unlikely.
+            // if we did, just return what we have already.
             if (loopState != raw.Data[raw.Data.Length - 1])
                 loopState = raw.Data[raw.Data.Length - 1];
-            else return this.touchData; // we got the same frame twice, duplicated data, don't care.
+            else return touchData;
             
-            this.touchData = new bool[4, 30];
+            if(clearBuffer) Array.Clear(touchData, 0, touchData.Length);
             
             Array.Copy(raw.Data, 0, lastRawData, 0, 24);
             
@@ -355,12 +405,12 @@ namespace LilyConsole
                         var y = (byte)(segment + (panel * 5));
                         
                         if (active) segments.Add(new ActiveSegment(row, y));
-                        this.touchData[row, y] = active;
+                        touchData[row, y] = active;
                     }
                 }
             }
 
-            return this.touchData;
+            return touchData;
         } 
         /// <summary>
         /// Sends a command to the Sync Board.
@@ -385,7 +435,7 @@ namespace LilyConsole
         /// </summary>
         /// <param name="size">How many bytes to read.</param>
         /// <returns>The returned data, as a <see cref="TouchCommand"/>.</returns>
-        /// <exception cref="Exception">
+        /// <exception cref="InvalidDataException">
         /// If the returned data does not have a valid checksum, an exception will be thrown.
         /// </exception>
         private TouchCommand ReadData(int size)
@@ -398,7 +448,7 @@ namespace LilyConsole
             
             if (!TouchCommand.ValidateChecksum(raw))
             {
-                throw new Exception("Checksum failure!");
+                throw new InvalidDataException("Checksum failure!");
             }
 
             return new TouchCommand(raw);

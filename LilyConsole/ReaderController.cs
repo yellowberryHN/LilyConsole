@@ -4,9 +4,6 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.IO.Ports;
 using System.Text;
-#if UNITY
-using UnityEngine;
-#endif
 
 namespace LilyConsole
 {
@@ -21,13 +18,12 @@ namespace LilyConsole
         public bool radioEnabled { get; private set; }
         public bool ready { get; private set; }
         
-        #if UNITY
-        private Color32 _readerColor;
-        public Color32 readerColor { get => _readerColor; set => SetColor(value); }
-        #else
         private LightColor _readerColor;
+        
+        /// <summary>
+        /// The current color of the reader.
+        /// </summary>
         public LightColor readerColor { get => _readerColor; set => SetColor(value); }
-        #endif
         
         public byte firmwareVersion { get; private set; }
         public string hardwareVersion { get; private set; }
@@ -312,7 +308,7 @@ namespace LilyConsole
         /// <param name="block">The block you want to read from.</param>
         /// <returns>The contents of the block.</returns>
         /// <exception cref="InvalidOperationException">Thrown if the reader is not initialized, or if the radio is not enabled.</exception>
-        /// <exception cref="Exception">Thrown if the reader responds with an error.</exception>
+        /// <exception cref="ReaderException">Thrown if the reader responds with an error.</exception>
         /// <remarks>You must have a card selected with <see cref="SelectCard(byte[])"/> before using this.</remarks>
         /// <seealso cref="AuthenticateKeyA(byte[],byte)"/>
         /// <seealso cref="AuthenticateKeyB(byte[],byte)"/>
@@ -328,7 +324,7 @@ namespace LilyConsole
             var resp = GetResponse();
             
             if(resp.status != ReaderResponseStatus.Ok)
-                throw new Exception($"ReadBlock (block {block}) failed with status {resp.status}");
+                throw new ReaderException($"ReadBlock (block {block}) failed with status {resp.status}");
             
             return resp.payload;
         }
@@ -342,7 +338,7 @@ namespace LilyConsole
         /// <returns>The contents of the block.</returns>
         /// <exception cref="InvalidOperationException">Thrown if the reader is not initialized, or if the radio is not enabled.</exception>
         /// <exception cref="ArgumentException">Thrown if <paramref name="card"/> is not a Mifare card.</exception>
-        /// <exception cref="Exception">Thrown if the reader responds with an error.</exception>
+        /// <exception cref="ReaderException">Thrown if the reader responds with an error.</exception>
         /// <remarks>You must have a card selected with <see cref="SelectCard(ReaderCard)"/> before using this.</remarks>
         /// <seealso cref="AuthenticateKeyA(ReaderCard,byte)"/>
         /// <seealso cref="AuthenticateKeyB(ReaderCard,byte)"/>
@@ -406,30 +402,29 @@ namespace LilyConsole
         /// <remarks>Current color can be queried with <see cref="readerColor"/>.</remarks>
         public void SetColorIntensity(ReaderColorChannel channel, byte value)
         {
-            SendCommand(new ReaderCommand(ReaderCommandType.LightSetChannel, new []{ (byte)channel, value }));
-            #if UNITY
-            _readerColor = new Color32(
-            #else
-            _readerColor = new LightColor(
-            #endif
+            
+            var color = new LightColor(
                 channel.HasFlag(ReaderColorChannel.Red) ? value : readerColor.r,
                 channel.HasFlag(ReaderColorChannel.Green) ? value : readerColor.g,
                 channel.HasFlag(ReaderColorChannel.Blue) ? value : readerColor.b,
                 0xFF);
+            
+            if (color == _readerColor) return;
+            
+            SendCommand(new ReaderCommand(ReaderCommandType.LightSetChannel, new []{ (byte)channel, value }));
+            _readerColor = color;
         }
-        
+
         /// <summary>
         /// Sets the color of the reader LEDs.
         /// </summary>
         /// <param name="color">The color to set the reader to.</param>
         /// <exception cref="InvalidOperationException">Thrown if the reader is not initialized.</exception>
         /// <remarks>Current color can be queried with <see cref="readerColor"/>.</remarks>
-        #if UNITY
-        public void SetColor(Color32 color)
-        #else
         public void SetColor(LightColor color)
-        #endif
         {
+            if (color == _readerColor) return;
+            
             SendCommand( new ReaderCommand(ReaderCommandType.LightSetColor, new []{ (byte)color.r, (byte)color.g, (byte)color.b } ));
             _readerColor = color;
         }
@@ -444,35 +439,27 @@ namespace LilyConsole
         /// <remarks>Current color can be queried with <see cref="readerColor"/>.</remarks>
         public void SetColor(byte r, byte g, byte b) 
         {
-            #if UNITY
-            SetColor(new Color32(r,g,b,0xFF));
-            #else
             SetColor(new LightColor(r,g,b));
-            #endif
         }
         
         /// <summary>
         /// Asks the reader for the firmware version it's running.
         /// Stores it in <see cref="firmwareVersion"/>. 
         /// </summary>
-        /// <exception cref="Exception">Thrown if the reader responds with an error.</exception>
+        /// <exception cref="ReaderException">Thrown if the reader responds with an error.</exception>
         private void GetFirmwareVersion()
         {
             SendCommand(new ReaderCommand(ReaderCommandType.GetFirmwareVersion));
             var resp = GetResponse();
             
             if(resp.status != ReaderResponseStatus.Ok)
-                throw new Exception($"GetFirmwareVersion failed with status {resp.status}");
+                throw new ReaderException($"GetFirmwareVersion failed with status {resp.status}");
             
             firmwareVersion = resp.payload[0];
 
             if (firmwareVersion != 0x94)
             {
-                #if UNITY
-                Debug.LogWarning("[LilyConsole] Reader firmware version not recognized, hoping for the best...");
-                #else
                 if (DebugMode) Console.WriteLine("Warning: Reader firmware version not recognized, hoping for the best...");
-                #endif
             }
         }
 
@@ -480,14 +467,14 @@ namespace LilyConsole
         /// Asks the reader for the hardware version it's running.
         /// Stores it in <see cref="hardwareVersion"/>. 
         /// </summary>
-        /// <exception cref="Exception">Thrown if the reader responds with an error.</exception>
+        /// <exception cref="ReaderException">Thrown if the reader responds with an error.</exception>
         private void GetHardwareVersion()
         {
             SendCommand(new ReaderCommand(ReaderCommandType.GetHardwareVersion));
             var resp = GetResponse();
             
             if(resp.status != ReaderResponseStatus.Ok) 
-                throw new Exception($"GetHardwareVersion failed with status {resp.status}");
+                throw new ReaderException($"GetHardwareVersion failed with status {resp.status}");
             
             hardwareVersion = Encoding.ASCII.GetString(resp.payload);
         }
@@ -497,7 +484,7 @@ namespace LilyConsole
         /// or else it will respond with <see cref="ReaderResponseStatus.InvalidCommand"/>,
         /// which can be safely ignored, so we do so.
         /// </summary>
-        /// <exception cref="Exception">Thrown if the reader responds with an error.</exception>
+        /// <exception cref="ReaderException">Thrown if the reader responds with an error.</exception>
         /// <remarks>
         /// Call this before sending any other commands to the reader.
         /// If you do not, it will not respond to anything.
@@ -508,7 +495,7 @@ namespace LilyConsole
             var resp = GetResponse();
 
             if (resp.status != ReaderResponseStatus.Ok && resp.status != ReaderResponseStatus.InvalidCommand)
-                throw new Exception($"Reset failed with status {resp.status}");
+                throw new ReaderException($"Reset failed with status {resp.status}");
 
             ready = true;
         }
@@ -522,16 +509,15 @@ namespace LilyConsole
         /// </summary>
         /// <param name="uid">The UID of the card you want read the access code from.</param>
         /// <returns>The 10-byte access code.</returns>
-        /// <exception cref="Exception">Thrown if the reader responds with an error.</exception>
+        /// <exception cref="ReaderException">Thrown if the reader responds with an error.</exception>
         /// <exception cref="InvalidOperationException">Thrown if the reader is not initialized, or if the radio is not enabled.</exception>
-        /// <remarks>You can store the return value of this method in the <see cref="ReaderCard.accessCode"/> property of the <paramref name="card"/>.</remarks>
         public byte[] ReadAccessCode(byte[] uid)
         {
             var accessCode = new byte[10];
             
             var status = AuthenticateKeyA(uid, 3);
             if(status != ReaderResponseStatus.Ok) 
-                throw new Exception($"ReadAccessCode (AuthenticateKeyA) failed with status {status}");
+                throw new ReaderException($"ReadAccessCode (AuthenticateKeyA) failed with status {status}");
 
             var block = ReadBlock(uid, 2);
             Array.Copy(block, 6, accessCode, 0, accessCode.Length);
@@ -545,7 +531,7 @@ namespace LilyConsole
         /// <param name="card">The card you want read the access code from.</param>
         /// <returns>The 10-byte access code.</returns>
         /// <exception cref="ArgumentException">Thrown if <paramref name="card"/> is not a Mifare card.</exception>
-        /// <exception cref="Exception">Thrown if the reader responds with an error.</exception>
+        /// <exception cref="ReaderException">Thrown if the reader responds with an error.</exception>
         /// <exception cref="InvalidOperationException">Thrown if the reader is not initialized, or if the radio is not enabled.</exception>
         /// <remarks>You can store the return value of this method in the <see cref="ReaderCard.accessCode"/> property of the <paramref name="card"/>.</remarks>
         public byte[] ReadAccessCode(ReaderCard card)
@@ -557,12 +543,12 @@ namespace LilyConsole
         
         /// <summary>
         /// Reads the access code from the last detected card. You probably shouldn't use this.
-        /// </summary>>
+        /// Use <see cref="ReadAccessCode(ReaderCard)"/> instead.
+        /// </summary>
         /// <returns>The 10-byte access code.</returns>
-        /// <exception cref="ArgumentException">Thrown if <paramref name="card"/> is not a Mifare card.</exception>
-        /// <exception cref="Exception">Thrown if the reader responds with an error.</exception>
+        /// <exception cref="ArgumentException">Thrown if the last detected card is not a Mifare card.</exception>
+        /// <exception cref="ReaderException">Thrown if the reader responds with an error.</exception>
         /// <exception cref="InvalidOperationException">Thrown if the reader is not initialized, or if the radio is not enabled.</exception>
-        /// <remarks>You can store the return value of this method in the <see cref="ReaderCard.accessCode"/> property of the <paramref name="card"/>.</remarks>
         public byte[] ReadAccessCode()
         {
             return ReadAccessCode(_lastPoll[0]);
@@ -574,7 +560,7 @@ namespace LilyConsole
         /// <param name="card">The card to fill info from.</param>
         /// <returns>The modified card information.</returns>
         /// <exception cref="ArgumentException">Thrown if <paramref name="card"/> is a FeliCa card but has invalid data.</exception>
-        /// <exception cref="Exception">Thrown if the reader responds with an error.</exception>
+        /// <exception cref="ReaderException">Thrown if the reader responds with an error.</exception>
         /// <exception cref="InvalidOperationException">Thrown if the reader is not initialized, or if the radio is not enabled.</exception>
         /// <remarks>This doesn't do anything useful for FeliCa cards yet.</remarks>
         public ReaderCard ReadCardInfo(ReaderCard card)
@@ -598,8 +584,8 @@ namespace LilyConsole
         /// this is the method you want to call.
         /// </summary>
         /// <returns>The modified card information.</returns>
-        /// <exception cref="ArgumentException">Thrown if <paramref name="card"/> is a FeliCa card but has invalid data.</exception>
-        /// <exception cref="Exception">Thrown if the reader responds with an error.</exception>
+        /// <exception cref="ArgumentException">Thrown if the last detected card is a FeliCa card but has invalid data.</exception>
+        /// <exception cref="ReaderException">Thrown if the reader responds with an error.</exception>
         /// <exception cref="InvalidOperationException">Thrown if the reader is not initialized, or if the radio is not enabled.</exception>
         public ReaderCard ReadCardInfo()
         {
@@ -607,27 +593,28 @@ namespace LilyConsole
         }
         
         /// <summary>
-        /// Turns the reader LEDs off by setting the color to black.
+        /// Turns the reader LEDs off.
         /// </summary>
         /// <exception cref="InvalidOperationException">Thrown if the reader is not initialized.</exception>
 
         public void ClearColor()
         {
-            SetColor(0,0,0);
+            // set all channels to zero
+            SetColorIntensity((ReaderColorChannel)7, 0);
         }
-        
+
         /// <summary>
         /// Initializes the keys used by the type of cards you'll probably be reading.
         /// </summary>
-        /// <exception cref="Exception">Thrown if the reader responds with an error.</exception>
+        /// <exception cref="ReaderException">Thrown if the reader responds with an error.</exception>
         /// <exception cref="InvalidOperationException">Thrown if the reader is not initialized.</exception>
         public void SetDefaultKeys()
         {
             var resp = SetKeyA(new byte[]{0x60,0x90,0xD0,0x06,0x32,0xF5});
-            if(resp != ReaderResponseStatus.Ok) throw new Exception($"SetDefaultKeys (Key A) failed with status {resp}");
+            if(resp != ReaderResponseStatus.Ok) throw new ReaderException($"SetDefaultKeys (Key A) failed with status {resp}");
             
             resp = SetKeyB(new byte[]{0x57,0x43,0x43,0x46,0x76,0x32});
-            if(resp != ReaderResponseStatus.Ok) throw new Exception($"SetDefaultKeys (Key B) failed with status {resp}");
+            if(resp != ReaderResponseStatus.Ok) throw new ReaderException($"SetDefaultKeys (Key B) failed with status {resp}");
         }
         
         #endregion
@@ -638,11 +625,7 @@ namespace LilyConsole
         {
             if (DebugMode)
             {
-                #if UNITY
-                Debug.Log("[LilyConsole] READER -> " + BitConverter.ToString(data));
-                #else
                 Console.WriteLine("-> " + BitConverter.ToString(data));
-                #endif
             }
              
             port.Write(data, 0, data.Length);
@@ -674,11 +657,11 @@ namespace LilyConsole
         /// </summary>
         /// <remarks>This does not validate the checksum of the received response, I'm lazy</remarks>
         /// <returns>The response from the reader</returns>
-        /// <exception cref="Exception">Thrown when the marker byte is invalid</exception>
+        /// <exception cref="InvalidDataException">Thrown when the marker byte is invalid</exception>
         private ReaderResponse GetResponse()
         {
             var marker = (byte)port.ReadByte();
-            if (marker != 0xe0) throw new Exception($"Invalid response (read {marker:X2}, expected E0)");
+            if (marker != 0xe0) throw new InvalidDataException($"Invalid response (read {marker:X2}, expected E0)");
             
             var len = (byte)port.ReadByte();
             var final = new byte[len + 2];
@@ -700,11 +683,7 @@ namespace LilyConsole
             
             if (DebugMode)
             {
-                #if UNITY
-                Debug.Log("[LilyConsole] READER <- " + BitConverter.ToString(final));
-                #else
                 Console.WriteLine("<- " + BitConverter.ToString(final));
-                #endif
             }
             
             return new ReaderResponse(final);

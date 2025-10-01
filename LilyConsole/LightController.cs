@@ -24,11 +24,8 @@ namespace LilyConsole
         /// this will not include the touch data light information.
         /// </remarks>
         public LightFrame lastFrame { get; private set; } = new LightFrame();
-        
-        public LightController()
-        {
-            
-        }
+
+        private LedData _ledBuffer = LedData.blank;
 
         /// <summary>
         /// Prepares the lights to be controlled.
@@ -51,7 +48,7 @@ namespace LilyConsole
         /// </summary>
         /// <remarks>If you call this, you must call <see cref="Initialize"/> again if you want to talk to the board again.</remarks>
         /// <returns>The success state of the cleanup.</returns>
-        public bool CleanUp()
+        public bool Close()
         {
             if (handler == LightHandlerType.Off) return true;
             
@@ -74,12 +71,12 @@ namespace LilyConsole
         {
             if (handler == LightHandlerType.Off) return;
             
-            lastFrame = frame;
+            frame.Flatten(ref _ledBuffer.rgbaValues);
             
             switch (handler)
             {
                 case LightHandlerType.USBIntLED:
-                    USBIntLED.Safe_USBIntLED_set(0, (LedData)frame);
+                    USBIntLED.Safe_USBIntLED_set(0, _ledBuffer);
                     break;
                 case LightHandlerType.FTD2XX:
                     // TODO: try to do FTD2XX stuff here
@@ -87,6 +84,8 @@ namespace LilyConsole
                 default:
                     throw new NotSupportedException("Handler not supported");
             }
+            
+            lastFrame = frame;
         }
 
         /// <summary>
@@ -99,14 +98,15 @@ namespace LilyConsole
         {
             if (handler == LightHandlerType.Off) return;
             
-            lastFrame = frame;
-            
             frame.AddTouchData(segments);
+            
+            frame.Flatten(ref _ledBuffer.rgbaValues);
             
             switch (handler)
             {
                 case LightHandlerType.USBIntLED:
-                    USBIntLED.Safe_USBIntLED_set(0, (LedData)frame);
+                    
+                    USBIntLED.Safe_USBIntLED_set(0, _ledBuffer);
                     break;
                 case LightHandlerType.FTD2XX:
                     // TODO: try to do FTD2XX stuff here
@@ -114,6 +114,8 @@ namespace LilyConsole
                 default:
                     throw new NotSupportedException("Handler not supported");
             }
+            
+            lastFrame = frame;
         }
 
         /// <summary>
@@ -121,7 +123,7 @@ namespace LilyConsole
         /// </summary>
         ~LightController()
         {
-            CleanUp();
+            Close();
         }
     }
 

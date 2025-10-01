@@ -4,11 +4,6 @@ using System.IO;
 using System.Text;
 using System.Text.RegularExpressions;
 using LilyConsole.Helpers;
-#if UNITY
-using UnityEngine;
-#elif GODOT
-using Godot;
-#endif
 
 namespace LilyConsole
 {
@@ -43,36 +38,42 @@ namespace LilyConsole
         }
     }
     
-    /// send the unknown ones at your own peril.
+    /// send the unknown ones at your own peril. research ongoing...
     public enum TouchCommandType
     {
-        NEXT_WRITE = 0x20,
-        UNKNOWN_6F = 0x6F,
-        UNKNOWN_71 = 0x71,
-        NEXT_READ = 0x72,
-        BEGIN_WRITE = 0x77,
-        TOUCH_DATA = 0x81,
-        UNKNOWN_91 = 0x91,
-        UNKNOWN_93 = 0x93,
-        SET_THRESHOLDS = 0x94,
-        GET_SYNC_BOARD_VER = 0xA0,
-        UNKNOWN_A2 = 0xA2,
-        UNKNOWN_READ = 0xA3,
-        GET_UNIT_BOARD_VER = 0xA8,
-        UNKNOWN_A9 = 0xA9,
-        UNKNOWN_BC = 0xBC,
-        UNKNOWN_C0 = 0xC0,
-        UNKNOWN_C1 = 0xC1,
-        START_AUTO_SCAN = 0xC9,
+        NextWrite = 0x20,
+        Unknown6F = 0x6F,
+        Unknown71 = 0x71,
+        NextRead = 0x72,
+        BeginWrite = 0x77,
+        TouchData = 0x81,
+        Unknown90 = 0x90,
+        Unknown91 = 0x91,
+        Unknown93 = 0x93,
+        SetThresholds = 0x94,
+        Unknown9A = 0x9A,
+        Unknown9B = 0x9B,
+        Unknown9C = 0x9C,
+        StartAutoScanGap = 0x9D,
+        ProtoAutoScan = 0x9E,
+        StartAutoScanChatter = 0x9F,
+        GetSyncBoardVersion = 0xA0,
+        UnknownA1 = 0xA1,
+        UnknownA2 = 0xA2,
+        UnknownRead = 0xA3,
+        GetUnitBoardVersion = 0xA8,
+        UnknownA9 = 0xA9,
+        UnknownBC = 0xBC,
+        UnknownC0 = 0xC0,
+        UnknownC1 = 0xC1,
+        UnknownC8 = 0xC8,
+        StartAutoScan = 0xC9,
     }
     
     #endregion
 
     #region Lights
-
-    #if UNITY
-    [Obsolete("Use Unity native Color32 instead.", true)]
-    #endif
+    
     public struct LightColor : IEquatable<LightColor>
     {
         public static LightColor Red => new LightColor(255, 0, 0);
@@ -81,35 +82,40 @@ namespace LilyConsole
         public static LightColor White => new LightColor(255, 255, 255);
         public static LightColor Black => new LightColor(0, 0, 0);
         public static LightColor Off => new LightColor();
-
-        public byte r;
-        public byte g;
-        public byte b;
-        public byte a;
+        
+        /// <summary>
+        /// The color, stored as ABGR. When marshalled, it gets flipped to RGBA
+        /// </summary>
+        /// <remarks>This is probably way unnecessary.</remarks>
+        public readonly uint value;
+        
+        public byte r => (byte)value;
+        public byte g => (byte)(value >> 8);
+        public byte b => (byte)(value >> 16);
+        public byte a => (byte)(value >> 24);
 
         public LightColor(byte r, byte g, byte b, byte a = 0xFF)
         {
-            this.r = r;
-            this.g = g;
-            this.b = b;
-            this.a = a;
+            value = (uint)((a << 24) | (b << 16) | (g << 8) | r);
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="value"></param>
+        internal LightColor(uint value)
+        {
+            this.value = value;
         }
 
         public override int GetHashCode()
         {
-            unchecked
-            {
-                var hashCode = r.GetHashCode();
-                hashCode = (hashCode * 397) ^ g.GetHashCode();
-                hashCode = (hashCode * 397) ^ b.GetHashCode();
-                hashCode = (hashCode * 397) ^ a.GetHashCode();
-                return hashCode;
-            }
+            return value.GetHashCode();
         }
 
         public bool Equals(LightColor other)
         {
-            return r == other.r && g == other.g && b == other.b && a == other.a;
+            return value == other.value;
         }
         
         public override bool Equals(object obj)
@@ -126,18 +132,6 @@ namespace LilyConsole
         {
             return !left.Equals(right);
         }
-        
-        #if GODOT
-        public static implicit operator LightColor(Color color)
-        {
-            return new LightColor((byte)color.R8, (byte)color.G8, (byte)color.B8, (byte)color.A8);
-        }
-
-        public static implicit operator Color(LightColor color)
-        {
-            return Color.Color8(color.r, color.g, color.b, color.a);
-        }
-        #endif
     }
 
     public class LightFrame
@@ -155,20 +149,12 @@ namespace LilyConsole
             _layers = new List<LightLayer> { new LightLayer() };
         }
         
-        #if UNITY
-        public LightFrame(Color32 color) : this()
-        #else
         public LightFrame(LightColor color) : this()
-        #endif
         {
             _layers[0].FillColor(color);
         }
-
-        #if UNITY
-        public LightFrame(Color32[] colors) : this()
-        #else
+        
         public LightFrame(LightColor[] colors) : this()
-        #endif
         {
             _layers[0].colors = colors;
         }
@@ -182,75 +168,43 @@ namespace LilyConsole
         {
             _touchLayer = LightLayer.FromTouchData(segments);
         }
-
-        #if UNITY
-        private Color32[] Flatten()
+        
+        internal void Flatten(ref LightColor[] buffer)
         {
-            var flat = new Color32[480];
-        #else
-        private LightColor[] Flatten()
-        {
-            var flat = new LightColor[480];
-        #endif
             foreach (var layer in _layers)
             {
                 for (var i = 0; i < 480; i++)
                 {
-                    #if UNITY
-                    if (layer[i] != Color.clear)
-                    #else
-                    if (layer[i] != LightColor.Off)
-                    #endif
+                    LightColor light = layer[i];
+                    if (light.a != 0)
                     {
-                        flat[i] = layer[i];
+                        buffer[i] = light;
                     }
                 }
             }
 
-            if (_touchLayer == null) return flat;
+            if (_touchLayer == null) return;
             
             for (var i = 0; i < 480; i++)
             {
-                #if UNITY
-                if (_touchLayer[i] != Color.clear)
-                #else
-                if (_touchLayer[i] != LightColor.Off)
-                #endif
+                LightColor touchLight = _touchLayer[i];
+                if (touchLight.a != 0)
                 {
-                    flat[i] = _touchLayer[i];
+                    buffer[i] = touchLight;
                 }
             }
-
-            return flat;
-        }
-        
-        public static explicit operator LedData(LightFrame frame)
-        {
-            return new LedData { unitCount = 480, rgbaValues = frame.Flatten() };
         }
     }
 
     public class LightLayer
     {
-        #if UNITY
-        private Color32[] _colors = new Color32[480];
-        #else
         private LightColor[] _colors = new LightColor[480];
-        #endif
-
-        #if UNITY
-        /// <summary>
-        /// The array of colors in this frame. <b>It must contain exactly 480 <see cref="UnityEngine.Color32"/> objects.</b>
-        /// </summary>
-        /// <exception cref="ArgumentException">The array was not the expected size of 480.</exception>
-        public Color32[] colors
-        #else
+        
         /// <summary>
         /// The array of colors in this frame. <b>It must contain exactly 480 <see cref="LightColor"/> objects.</b>
         /// </summary>
         /// <exception cref="ArgumentException">The array was not the expected size of 480.</exception>
         public LightColor[] colors
-        #endif
         {
             get => _colors;
             set
@@ -260,35 +214,19 @@ namespace LilyConsole
             }
         }
         
-        #if UNITY
-        public Color32 this[int index]
-        #else
         public LightColor this[int index]
-        #endif
         {
             get => _colors[index];
             set => _colors[index] = value;
         }
         
-        #if UNITY
-        public Color32 this[byte x, byte y]
-        #else
         public LightColor this[byte x, byte y]
-        #endif
         {
             get => GetSegmentColor(x, y);
             set => SetSegmentColor(x, y, value);
         }
-
-        /// <summary>
-        /// Fills every pixel with the same color.
-        /// </summary>
-        /// <param name="color">The color to use.</param>
-        #if UNITY
-        public void FillColor(Color32 color)
-        #else
+        
         public void FillColor(LightColor color)
-        #endif
         {
             for (var i = 0; i < 480; i++) colors[i] = color;
         }
@@ -296,38 +234,50 @@ namespace LilyConsole
         /// <summary>
         /// Sets a specific segments color based on its coordinates.
         /// </summary>
-        /// <param name="x">The row of the segment.</param>
-        /// <param name="y">The column of the segment.</param>
-        /// <param name="color">The color to set it to.</param>
-        #if UNITY
-        public void SetSegmentColor(byte x, byte y, Color32 color)
-        #else
-        public void SetSegmentColor(byte x, byte y, LightColor color)
-        #endif
+        /// <param name="x">The column of the segment.</param>
+        /// <param name="y">The row of the segment.</param>
+        /// <param name="color1">The color for the bottom LED.</param>
+        /// <param name="color2">The color for the top LED.</param>
+        public void SetSegmentColor(byte x, byte y, LightColor color1, LightColor color2)
         {
             var pixels = GetPixelsInSegment(x, y);
-            colors[pixels[0]] = colors[pixels[1]] = color;
+            colors[pixels[0]] = color1;
+            colors[pixels[1]] = color2;
+        }
+        
+        /// <summary>
+        /// Sets a specific segments color based on its coordinates.
+        /// </summary>
+        /// <param name="x">The column of the segment.</param>
+        /// <param name="y">The row of the segment.</param>
+        /// <param name="color">The color to set it to.</param>
+        public void SetSegmentColor(byte x, byte y, LightColor color)
+        {
+            SetSegmentColor(x, y, color, color);
         }
 
         /// <summary>
         /// Sets the color of an active segment.
         /// </summary>
         /// <param name="segment">The specified segment.</param>
-        /// <param name="color">The color to set it to.</param>
-        #if UNITY
-        public void SetSegmentColor(ActiveSegment segment, Color32 color)
-        #else
-        public void SetSegmentColor(ActiveSegment segment, LightColor color)
-        #endif
+        /// <param name="color1">The color for the bottom LED.</param>
+        /// <param name="color2">The color for the top LED.</param>
+        public void SetSegmentColor(ActiveSegment segment, LightColor color1, LightColor color2)
         {
-            SetSegmentColor(segment.x, segment.y, color);
+            SetSegmentColor(segment.x, segment.y, color1, color2);
         }
-
-        #if UNITY
-        public Color32 GetSegmentColor(byte x, byte y)
-        #else
+        
+        /// <summary>
+        /// Sets the color of an active segment.
+        /// </summary>
+        /// <param name="segment">The specified segment.</param>
+        /// <param name="color">The color to set it to.</param>
+        public void SetSegmentColor(ActiveSegment segment, LightColor color)
+        {
+            SetSegmentColor(segment, color, color);
+        }
+        
         public LightColor GetSegmentColor(byte x, byte y)
-        #endif
         {
             return _colors[GetPixelsInSegment(x, y)[0]];
         }
@@ -335,14 +285,14 @@ namespace LilyConsole
         // Fun fact, you can't fit a number 0-479 into a byte
         private static ushort[] GetPixelsInSegment(byte x, byte y)
         {
-            if (x > 3 || y > 59) throw new IndexOutOfRangeException();
+            if (x > 59 || y > 3) throw new IndexOutOfRangeException();
             // this math makes my head hurt.
             ushort lower;
 
-            if (y < 30) // left side
-                lower = (ushort)((29 - y) * 8 + (3 - x) * 2);
+            if (x < 30) // left side
+                lower = (ushort)((29 - x) * 8 + (3 - y) * 2);
             else // right side
-                lower = (ushort)(480 - ((y - 29) * 8 + (x - 3) * 2));
+                lower = (ushort)(480 - ((x - 29) * 8 + (y - 3) * 2));
             
             return new ushort[] { lower, (ushort)(lower + 1) };
         }
@@ -352,11 +302,7 @@ namespace LilyConsole
             var touchLayer = new LightLayer();
             foreach (var seg in segments)
             {
-                #if UNITY
-                touchLayer.SetSegmentColor(seg, Color.white);
-                #else
                 touchLayer.SetSegmentColor(seg, LightColor.White);
-                #endif
             }
             
             return touchLayer;
@@ -366,7 +312,20 @@ namespace LilyConsole
     #endregion
     
     #region Reader
-    
+
+    /// <summary>
+    /// The exception thrown when a reader command returns a non-success state,
+    /// and the method does not return a <see cref="ReaderResponseStatus"/>.
+    /// </summary>
+    public class ReaderException : Exception
+    {
+        public ReaderException() { }
+        
+        public ReaderException(string message) : base(message) { }
+        
+        public ReaderException(string message, Exception inner) : base(message, inner) { }
+    }
+
     public struct ReaderCommand
     {
         public ReaderCommandType command;
@@ -374,13 +333,13 @@ namespace LilyConsole
 
         public ReaderCommand(ReaderCommandType cmd)
         {
-            this.command = cmd;
-            this.payload = new byte[0];
+            command = cmd;
+            payload = new byte[0];
         }
 
         public ReaderCommand(ReaderCommandType cmd, byte[] payload)
         {
-            this.command = cmd;
+            command = cmd;
             this.payload = payload;
         }
 
@@ -467,7 +426,7 @@ namespace LilyConsole
 
         public ReaderResponse(byte[] raw)
         {
-            if (raw[0] != 0xe0) throw new Exception($"Invalid response (read {raw[0]:X2}, expected E0)");
+            if (raw[0] != 0xe0) throw new InvalidDataException($"Invalid response (read {raw[0]:X2}, expected E0)");
             command = (ReaderCommandType)raw[4];
             status = (ReaderResponseStatus)raw[5];
             payload = new byte[raw[6]];
@@ -480,9 +439,12 @@ namespace LilyConsole
         }
     }
 
+    /// <summary>
+    /// Contains information about a card.
+    /// </summary>
     public struct ReaderCard
     {
-        public ReaderCardType type;
+        public readonly ReaderCardType type;
         
         // Mifare
         public readonly byte[] uid;
@@ -492,25 +454,42 @@ namespace LilyConsole
         public readonly byte[] idm;
         public readonly byte[] pmm;
         
+        /// <summary>
+        /// Creates a new card with the provided information.
+        /// </summary>
+        /// <param name="type">The type of card to create.</param>
+        /// <param name="data">The ID of the card, as a byte array.</param>
+        /// <exception cref="ArgumentOutOfRangeException"></exception>
         public ReaderCard(ReaderCardType type, byte[] data)
         {
             this.type = type;
-            this.uid = this.idm = this.pmm = this.accessCode = new byte[0];
+            uid = idm = pmm = accessCode = new byte[0];
 
             switch (type)
             {
                 case ReaderCardType.Mifare:
-                    this.uid = data;
+                    uid = data;
                     break;
                 case ReaderCardType.FeliCa:
-                    Array.Copy(data, 0, this.idm, 0, 8);
-                    Array.Copy(data, 8, this.pmm, 0, 8);
+                    idm = new byte[8];
+                    Array.Copy(data, 0, idm, 0, 8);
+                    pmm = new byte[8];
+                    Array.Copy(data, 7, pmm, 0, 8);
                     break;
                 default:
                     throw new ArgumentOutOfRangeException(nameof(type), type, null);
             }
         }
 
+        /// <summary>
+        /// Converts the information in this card into a user-facing identifier for the card.
+        /// </summary>
+        /// <returns>The user-facing identifier for the card.</returns>
+        /// <exception cref="InvalidDataException">Thrown if the card data is invalid in some way.</exception>
+        /// <remarks>
+        /// This is only intended for displaying the card information to the user.
+        /// <b>Do not use this string for data processing, the representation is subject to change at any time.</b>
+        /// </remarks>
         public override string ToString()
         {
             switch (type)
@@ -535,7 +514,7 @@ namespace LilyConsole
                     {
                         code = AmuseIC.GetID(idm);
                     }
-                    catch (ArgumentException e)
+                    catch (ArgumentException)
                     {
                         // only use "0008" code when the card is not recognized as an AIC
                         var bytes = idm;
@@ -545,11 +524,14 @@ namespace LilyConsole
                     
                     return Regex.Replace(code, ".{4}", "$0 ");
                 default:
-                    throw new ArgumentException("Invalid card type");
+                    throw new InvalidDataException("Invalid card type");
             }
         }
     }
     
+    /// <summary>
+    /// The status returned when a <see cref="ReaderResponse"/> is received.
+    /// </summary>
     public enum ReaderResponseStatus
     {
         Ok = 0x00,
@@ -561,6 +543,10 @@ namespace LilyConsole
         InternalError = 0x06
     }
 
+    /// <summary>
+    /// A card type.
+    /// Also used in flag form by <see cref="ReaderController.RadioOn"/> to select which card types to accept.
+    /// </summary>
     [Flags]
     public enum ReaderCardType
     {
@@ -568,6 +554,9 @@ namespace LilyConsole
         FeliCa = 2
     }
 
+    /// <summary>
+    /// A color channel for the lights in the reader.
+    /// </summary>
     [Flags]
     public enum ReaderColorChannel
     {

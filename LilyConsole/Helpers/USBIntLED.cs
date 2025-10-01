@@ -1,8 +1,5 @@
 using System;
 using System.Runtime.InteropServices;
-#if UNITY
-using UnityEngine;
-#endif
 
 namespace LilyConsole.Helpers
 {
@@ -10,16 +7,17 @@ namespace LilyConsole.Helpers
     public struct LedData
     {
         public uint unitCount;
-
-        #if UNITY
-        // Unity's Color32 is a struct of 4 bytes, so we can use it directly.
-        // 480 = 60 (angle) * 8 (depth)
-        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 480)]
-        public Color32[] rgbaValues;
-        #else
+        
         [MarshalAs(UnmanagedType.ByValArray, SizeConst = 480)]
         public LightColor[] rgbaValues;
-        #endif
+        
+        public static LedData blank = new LedData() { unitCount = 480, rgbaValues = new LightColor[480] };
+
+        public LedData(LightColor[] data)
+        {
+            unitCount = (uint)data.Length;
+            rgbaValues = data;
+        }
     }
 
     // ReSharper disable once InconsistentNaming

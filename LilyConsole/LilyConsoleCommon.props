@@ -30,6 +30,7 @@
         <WarningLevel>4</WarningLevel>
     </PropertyGroup>
     <ItemGroup>
+        <Compile Include="$(SolutionDir)\LilyConsole\IO4Controller.cs" />
         <Compile Include="$(SolutionDir)\LilyConsole\ReaderController.cs" />
         <Compile Include="$(SolutionDir)\LilyConsole\LightController.cs" />
         <Compile Include="$(SolutionDir)\LilyConsole\TouchController.cs" />

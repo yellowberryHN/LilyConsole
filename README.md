@@ -8,21 +8,24 @@ A C# library to interface with the various hardware of a WACCA cabinet.
   - [X] Console Touch (COM3/4)
 - [X] FTDI Interface
   - [X] Console Lights
-- [ ] IO4
-  - [ ] Panel Lights
-  - [ ] Volume/Test/Service Buttons
+- [X] IO4
+  - [X] Panel Lights
+  - [X] Volume/Test/Service Buttons
   - [ ] Coin Sensor
   - [ ] Coin Blocker
 
 ## Feature Grid
 
-|                    | .NET Framework 4.5.2 | .NET 6.0 (Godot) | .NET Standard 2.1 (Unity) |
+|                    | .NET Framework 4.5.2 | .NET 8.0 (Godot) | .NET Standard 2.1 (Unity) |
 |:------------------:|:--------------------:|:----------------:|:-------------------------:|
-| **Console Touch**  |          ✅           |        ❓         |             ❓             |
-| **Console Lights** |          ✅           |        ❓         |             ❓             |
-|  **Card Reader**   |          ✅           |        ❓         |             ❓             |
-|      **VFD**       |          ✅           |        ❓         |             ❓             |
-| **IO4 Functions**  |          ❌           |        ❌         |             ❌             |
+| **Console Touch**  |          ✅           |        ⚠         |             ⚠             |
+| **Console Lights** |          ✅           |        ❓         |             ✅             |
+|  **Card Reader**   |          ✅           |        ⚠         |             ⚠             |
+|      **VFD**       |          ✅           |        ⚠         |             ⚠             |
+| **IO4 Functions**  |          ✅           |        ❓         |             ❓             |
+
+**Note:** *Due to changes after .NET Framework, support for serial devices is not currently implemented
+for these versions. This will be resolved in the future.*
 
 ## Examples
 

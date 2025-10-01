@@ -35,7 +35,8 @@ namespace LilyConsoleTesting
                 Console.WriteLine("5) lights");
                 Console.WriteLine("6) card reader");
                 Console.WriteLine("7) combined touch with lights");
-                Console.WriteLine("8) card reader color test");
+                Console.WriteLine("8) card reader lights");
+                Console.WriteLine("9) io4");
                 var choice = Console.ReadKey(true);
 
                 switch (choice.KeyChar)
@@ -64,6 +65,9 @@ namespace LilyConsoleTesting
                     case '8':
                         ReaderColorTest();
                         break;
+                    case '9':
+                        IO4Test();
+                        break;
                 }
             }
         }
@@ -71,7 +75,7 @@ namespace LilyConsoleTesting
         // this is not a proper way to do things, don't do this.
         public static void CleanUp()
         {
-            USBIntLED.Safe_USBIntLED_set(0, (LedData)new LightFrame());
+            USBIntLED.Safe_USBIntLED_set(0, LedData.blank);
             USBIntLED.Safe_USBIntLED_Terminate();
         }
 
@@ -85,10 +89,11 @@ namespace LilyConsoleTesting
             Console.WriteLine("Starting Touch Stream...");
             Console.CursorVisible = false;
             RingL.StartTouchStream();
-            while (true)
+            while (!(Console.KeyAvailable && Console.ReadKey(true).Key == ConsoleKey.Escape))
             {
                 if (RingL.segments.Count > 0) RingL.DebugTouch();
             }
+            RingL.Close();
         }
 
         public static void TouchRTest()
@@ -101,10 +106,11 @@ namespace LilyConsoleTesting
             Console.WriteLine("Starting Touch Stream...");
             Console.CursorVisible = false;
             RingR.StartTouchStream();
-            while (true)
+            while (!(Console.KeyAvailable && Console.ReadKey(true).Key == ConsoleKey.Escape))
             {
                 if (RingR.segments.Count > 0) RingR.DebugTouch();
             }
+            RingR.Close();
         }
 
         public static void TouchCombinedTest()
@@ -115,11 +121,12 @@ namespace LilyConsoleTesting
             Console.WriteLine("Starting touch streams!");
             controller.StartTouchStream();
             Console.WriteLine("Started!");
-            while (true)
+            while (!(Console.KeyAvailable && Console.ReadKey(true).Key == ConsoleKey.Escape))
             {
                 controller.GetTouchData();
                 controller.DebugTouch();
             }
+            controller.Close();
         }
         
         public static void TouchCombinedTestWithLights()
@@ -135,14 +142,21 @@ namespace LilyConsoleTesting
             if (!lights.Initialize())
             {
                 Console.WriteLine("Failed to load lights!");
-            };
+            }
+
+            var frame = new LightFrame(new LightColor(255, 0, 255));
             
-            while (true)
+            while (!(Console.KeyAvailable && Console.ReadKey(true).Key == ConsoleKey.Escape))
             {
                 controller.GetTouchData();
-                lights.SendLightFrame(new LightFrame(new LightColor(255, 0, 255)), controller.segments);
+                frame.AddTouchData(controller.segments);
+                lights.SendLightFrame(frame);
+                //lights.SendLightFrame(frame, controller.segments);
                 controller.DebugTouch();
             }
+            
+            controller.Close();
+            lights.Close();
         }
 
         public static void VFDTest()
@@ -151,6 +165,12 @@ namespace LilyConsoleTesting
             vfd.Initialize();
             vfd.PowerOn();
             vfd.Write("Hello!");
+            Console.Write("Input: ");
+            var text = Console.ReadLine();
+            vfd.Clear();
+            vfd.Write(text.Length > 20 ? text.Substring(0, 20) : text);
+            Console.ReadKey();
+            vfd.Close();
         }
 
         public static void LightTest()
@@ -168,24 +188,37 @@ namespace LilyConsoleTesting
             Console.ReadKey();
             
             lights.SendLightFrame(new LightFrame(LightColor.Red));
-
-            /*
+            
             Console.ReadKey();
 
             var gradientFrame = new LightFrame
             {
                 layers =
                 {
-                    [0] = LightPatternGenerator.Gradient(LightColor.Blue, LightColor.Red)
+                    [0] = LightPatternGenerator.Gradient(LightColor.White, LightColor.Blue)
                 }
             };
 
             lights.SendLightFrame(gradientFrame);
-            */
-
+            
             Console.ReadKey();
             
-            lights.SendLightFrame(new LightFrame());
+            float time = 0;
+            const float cyclePeriod = 2 * (float)Math.PI;
+            
+            while (!(Console.KeyAvailable && Console.ReadKey(true).Key == ConsoleKey.Escape))
+            {
+                var r = (byte)(127.5 * (Math.Sin(time) + 1));
+                var g = (byte)(127.5 * (Math.Sin(time + 2 * Math.PI / 3) + 1));
+                var b = (byte)(127.5 * (Math.Sin(time + 4 * Math.PI / 3) + 1));
+                Thread.Sleep(15);
+                lights.SendLightFrame(new LightFrame(new LightColor(r, g, b)));
+                
+                time += 0.0005f; 
+                if (time >= cyclePeriod) time -= cyclePeriod;
+            }
+            
+            lights.Close();
         }
 
         public static void ReaderTest()
@@ -198,11 +231,15 @@ namespace LilyConsoleTesting
             reader.SetColor(LightColor.Blue);
             reader.RadioOn(); // very important step
             Console.WriteLine("Polling!");
+            ReaderResponseStatus pollStatus;
             while (reader.lastPoll.Count == 0 || Console.KeyAvailable)
             {
-                Thread.Sleep(500); // minimum recommended delay is 150ms
+                Thread.Sleep(150); // minimum recommended delay is 150ms, or about ever 10 frames at 60hz
                 Console.Write('.');
-                reader.Poll();
+                if ((pollStatus = reader.Poll()) != ReaderResponseStatus.Ok)
+                {
+                    Console.WriteLine($"Poll returned {pollStatus}!");
+                }
             }
             Console.WriteLine(Environment.NewLine);
             try
@@ -211,7 +248,7 @@ namespace LilyConsoleTesting
                 Console.WriteLine($"Access Code: {cardInfo}");
                 reader.SetColor(LightColor.Green);
             }
-            catch (Exception e)
+            catch (ReaderException e)
             {
                 Console.WriteLine($"Couldn't read card: {e.Message}");
                 reader.SetColor(LightColor.Red);
@@ -231,7 +268,7 @@ namespace LilyConsoleTesting
             float time = 0;
             const float cyclePeriod = 2 * (float)Math.PI;
             
-            while (true)
+            while (!(Console.KeyAvailable && Console.ReadKey(true).Key == ConsoleKey.Escape))
             {
                 var r = (byte)(127.5 * (Math.Sin(time) + 1));
                 var g = (byte)(127.5 * (Math.Sin(time + 2 * Math.PI / 3) + 1));
@@ -241,6 +278,53 @@ namespace LilyConsoleTesting
                 time += 0.0005f; 
                 if (time >= cyclePeriod) time -= cyclePeriod;
             }
+
+            reader.Close();
+        }
+        
+        // this does an extremely poor job at demonstrating what I was trying to, thread.sleep is slow as fuck
+        private static void IO4Test()
+        {
+            var board = new IO4Controller();
+            board.Initialize();
+            Console.WriteLine("Board started!");
+            Console.ReadKey(true);
+            board.SetColor(LightColor.White);
+            Console.WriteLine("Lights enabled!");
+            Console.ReadKey(true);
+            board.SetColor(new LightColor(255, 0, 255));
+            board.ClearBuffer();
+            Console.WriteLine("Going full ham! (no delay)");
+            while (!(Console.KeyAvailable && Console.ReadKey(true).Key == ConsoleKey.Escape))
+            {
+                board.Poll();
+                board.ButtonLights();
+            }
+            board.SetColor(LightColor.Green);
+            Console.WriteLine("Simulating ideal input poll rate (8ms)");
+            while (!(Console.KeyAvailable && Console.ReadKey(true).Key == ConsoleKey.Escape))
+            {
+                board.Poll();
+                board.ButtonLights();
+                Thread.Sleep(8);
+            }
+            board.SetColor(new LightColor(255, 255, 0));
+            Console.WriteLine("Simulating typical 60hz game loop (17ms)");
+            while (!(Console.KeyAvailable && Console.ReadKey(true).Key == ConsoleKey.Escape))
+            {
+                board.Poll(1);
+                board.ButtonLights();
+                Thread.Sleep(17);
+            }
+            board.SetColor(LightColor.Red);
+            Console.WriteLine("Simulating 30hz game loop (33ms)");
+            while (!(Console.KeyAvailable && Console.ReadKey(true).Key == ConsoleKey.Escape))
+            {
+                board.Poll(3);
+                board.ButtonLights();
+                Thread.Sleep(33);
+            }
+            board.Close();
         }
     }
 }

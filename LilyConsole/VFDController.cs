@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO.Ports;
+using System.Text.RegularExpressions;
 #if !NETFRAMEWORK
 using System.Runtime.Versioning;
 #endif
@@ -51,13 +52,13 @@ namespace LilyConsole
         
         private void RawWrite(byte number)
         {
-            Console.WriteLine(BitConverter.ToString(new byte[] { number }));
+            //Console.WriteLine(BitConverter.ToString(new byte[] { number }));
             port.Write(new byte[] { number }, 0, 1);
         }
 
         private void RawWrite(byte[] bytes)
         {
-            Console.WriteLine(BitConverter.ToString(bytes));
+            //Console.WriteLine(BitConverter.ToString(bytes));
             port.Write(bytes, 0, bytes.Length);
         }
         
@@ -76,7 +77,7 @@ namespace LilyConsole
             byte[] unicodeBytes = unicodeEncoding.GetBytes(text);
             byte[] encodedBytes = Encoding.Convert(unicodeEncoding, correctEncoding, unicodeBytes);
 
-            Console.WriteLine(BitConverter.ToString(encodedBytes));
+            //Console.WriteLine(BitConverter.ToString(encodedBytes));
             port.Write(encodedBytes, 0, encodedBytes.Length);
         }
 
@@ -88,6 +89,16 @@ namespace LilyConsole
         {
             RawWrite(text);
         }
+        
+        /// <summary>
+        /// Write text to the VFD at the current cursor position, as ASCII only.
+        /// </summary>
+        /// <param name="text">The text to write.</param>
+        public void WriteASCII(string text)
+        {
+            text = Regex.Replace(text, @"[^\u0000-\u007F]+", " ");
+            RawWrite(Encoding.ASCII.GetBytes(text));
+        }
 
         /// <summary>
         /// Resets the VFD to stock settings. You probably don't need to call this.
@@ -98,11 +109,12 @@ namespace LilyConsole
         }
 
         /// <summary>
-        /// Clears the VFD of any text or bitmaps.
+        /// Clears the VFD of any text or bitmaps, and moves the cursor back to (0, 0).
         /// </summary>
         public void Clear()
         {
             RawWrite(new byte[] { 0x1B, 0x0C });
+            Cursor(0,0);
         }
 
         /// <summary>
@@ -341,11 +353,12 @@ namespace LilyConsole
         /// <summary>
         /// Cleans up after using the VFD.
         /// </summary>
-        public void CleanUp()
+        public void Close()
         {
             Clear();
             Reset();
             PowerOff();
+            port.Close();
         }
 
         #if !NETFRAMEWORK
@@ -393,7 +406,7 @@ namespace LilyConsole
         /// </summary>
         ~VFDController()
         {
-            CleanUp();
+            Close();
         }
     }
 }
