@@ -11,6 +11,9 @@ namespace LilyConsole
     public class ReaderController
     {
         private SerialPort port;
+        private string portName;
+        private bool highRate;
+        
         private byte currentSeq;
         
         public bool DebugMode;
@@ -33,16 +36,17 @@ namespace LilyConsole
         
         public ReaderController(string portName = "COM1", bool highRate = true)
         {
-            port = new SerialPort(portName, highRate ? 115200 : 38400);
+            this.portName = portName;
+            this.highRate = highRate;
         }
 
         /// <summary>
         /// Creates a new connection to the card reader, and sets it up for use.
         /// </summary>
-        /// <remarks>This does not do anything if the connection is already open.</remarks> 
         public void Initialize()
         {
-            if (port.IsOpen) return;
+            port = new SerialPort(portName, highRate ? 115200 : 38400);
+        
             port.Open();
             Reset();
             GetFirmwareVersion();
@@ -53,10 +57,9 @@ namespace LilyConsole
         /// <summary>
         /// Closes the connection to the reader, ending any data transfer.
         /// </summary>
-        /// <remarks>This does not do anything if the connection is not open, to prevent weird states.</remarks>
+        /// <exception cref="InvalidOperationException">Thrown if the reader is not initialized.</exception>
         public void Close()
         {
-            if (!port.IsOpen) return;
             ClearColor();
             RadioOff();
             port.Close();
@@ -71,7 +74,7 @@ namespace LilyConsole
         /// <returns>The response status from the reader.</returns>
         /// <exception cref="InvalidOperationException">Thrown if the reader is not initialized.</exception>
         /// <seealso cref="RadioOff()"/>
-        public ReaderResponseStatus RadioOn(ReaderCardType type = ReaderCardType.Mifare | ReaderCardType.FeliCa)
+        public ReaderResponseStatus RadioOn(ReaderCardType type = ReaderCardType.Both)
         {
             SendCommand(new ReaderCommand(ReaderCommandType.RadioOn, new []{ (byte)type }));
             var resp = GetResponse();

@@ -14,31 +14,32 @@ namespace LilyConsole
 {
     public class VFDController
     {
-        SerialPort port;
+        private SerialPort port;
+        private string portName;
         public Lang language { get; private set; } = Lang.SIMP_CHINESE;
         public Font font { get; private set; } = Font._16_16;
         public Bright brightness { get; private set; } = Bright._100;
         public bool powered { get; private set; } = false;
-
-        /// <summary>
-        /// Establish a connection to a VFD, and prepare it for use.
-        /// </summary>
+        
         /// <param name="portName">The name passed to <see cref="SerialPort"/> for the VFD.</param>
-        /// <exception cref="System.IO.IOException">Will be thrown if serial port was not found.</exception>
         public VFDController(string portName = "COM2")
         {
-            port = new SerialPort(portName, 115200);
+            this.portName = portName;
         }
 
         /// <summary>
+        /// Establish a connection to a VFD, and prepare it for use.
         /// Initializes the display and sets some sane default settings.
         /// </summary>
         /// <remarks>
         /// Note that you may see the display flash for a moment when running this.
         /// This is due to the fact that the display must be powered on to change settings.
         /// </remarks>
+        /// <exception cref="System.IO.IOException">Will be thrown if serial port was not found.</exception>
         public void Initialize()
         {
+            port = new SerialPort(portName, 115200);
+            
             port.Open();
             Reset();
             PowerOn();
@@ -404,9 +405,6 @@ namespace LilyConsole
         /// <summary>
         /// Cleans up when the VFD controller is garbage collected.
         /// </summary>
-        ~VFDController()
-        {
-            Close();
-        }
+        ~VFDController() => Close();
     }
 }

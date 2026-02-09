@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
@@ -17,6 +18,9 @@ namespace LilyConsole
         /// Manager for the right side of the console.
         /// </summary>
         private SyncBoardController RingR;
+
+        private string leftPort;
+        private string rightPort;
 
         /// <summary>
         /// The last retrieved touch information as a multidimensional array (4x60).
@@ -51,18 +55,20 @@ namespace LilyConsole
         /// </summary>
         /// <param name="leftPort">The name passed to <see cref="SerialPort"/> for the left side of the console.</param>
         /// <param name="rightPort">The name passed to <see cref="SerialPort"/> for the right side of the console.</param>
-        /// <exception cref="System.IO.IOException">Will be thrown if serial port was not found.</exception>
         public TouchController(string leftPort = "COM4", string rightPort = "COM3")
         {
-            RingL = new SyncBoardController(leftPort, 'L');
-            RingR = new SyncBoardController(rightPort, 'R');
+            this.leftPort = leftPort;
+            this.rightPort = rightPort;
         }
 
         /// <summary>
         /// Creates a new connection to both sides of the console.
         /// </summary>
+        /// <exception cref="System.IO.IOException">Will be thrown if serial port was not found.</exception>
         public void Initialize()
         {
+            RingL = new SyncBoardController(leftPort, 'L');
+            RingR = new SyncBoardController(rightPort, 'R');
             RingL.Initialize();
             RingR.Initialize();
         }
@@ -154,6 +160,7 @@ namespace LilyConsole
     public class SyncBoardController
     {
         private SerialPort port;
+        private string portName;
 
         /// <summary>
         /// Used to determine if normalized data must be mirrored.
@@ -202,26 +209,27 @@ namespace LilyConsole
         
         /// <param name="portName">The name passed to <see cref="SerialPort"/> for the specified side of the console.</param>
         /// <param name="letter">The letter code of the side. Must be 'L' or 'R'.</param>
-        /// <exception cref="Exception">Will be thrown if the letter code is not 'L' or 'R'.</exception>
-        /// <exception cref="System.IO.IOException">Will be thrown if serial port was not found.</exception>
+        /// <exception cref="ArgumentException">Will be thrown if the letter code is not 'L' or 'R'.</exception>
         public SyncBoardController(string portName, char letter)
         {
             this.letter = char.ToUpper(letter);
             if (this.letter != 'R' && this.letter != 'L')
             {
-                throw new Exception($"Letter {this.letter} is unknown to TouchManager.");
+                throw new ArgumentException($"Letter {this.letter} is unknown to TouchManager.");
             }
-            port = new SerialPort(portName, 115200);
-            port.ReadTimeout = 0;
+            
+            this.portName = portName;
         }
 
         /// <summary>
         /// Creates a new connection to this side of the console.
         /// </summary>
-        /// <remarks>This does not do anything if the connection is already open, to prevent weird states.</remarks> 
+        /// <exception cref="System.IO.IOException">Will be thrown if serial port was not found.</exception>
         public void Initialize()
         {
-            if (port.IsOpen) return;
+            port = new SerialPort(portName, 115200);
+            port.ReadTimeout = 0;
+            
             port.Open();
             ShutUpPlease();
             GetSyncVersion();
@@ -248,14 +256,16 @@ namespace LilyConsole
 
         /// <summary>
         /// <b>THIS IS A HACK.</b> We can get the sync board to stop streaming data by asking it for the sync board
-        /// version and then waiting a bit. This is certainly not a good solution, but it works.
+        /// version a bunch of times and then waiting a bit. This is certainly not a good solution, but it works.
         /// </summary>
         private void ShutUpPlease()
         {
             port.DiscardInBuffer();
-            SendCommand(TouchCommandType.GetSyncBoardVersion);
-            SendCommand(TouchCommandType.GetSyncBoardVersion);
-            SendCommand(TouchCommandType.GetSyncBoardVersion);
+            for (var i = 0; i < 5; i++)
+            {
+                SendCommand(TouchCommandType.GetSyncBoardVersion);
+                port.DiscardInBuffer();
+            }
             Thread.Sleep(20);
             port.DiscardInBuffer();
             streamMode = false;
@@ -288,6 +298,15 @@ namespace LilyConsole
             {
                 unitVersions[i] = info.Substring(7+(i*6), 6);
             }
+        }
+        /// <summary>
+        /// Asks the Sync Board which Unit Boards are currently active.
+        /// </summary>
+        /// <returns>A <see cref="BitArray"/> with the states of the Unit Boards.</returns>
+        public BitArray GetActiveUnitBoards()
+        {
+            SendCommand(TouchCommandType.GetActiveUnitBoards);
+            return new BitArray(ReadData(3).Data);
         }
 
         /// <summary>
@@ -466,6 +485,8 @@ namespace LilyConsole
                 GetTouchData();
             }
         }
+        
+        ~SyncBoardController() => Close();
     }
 
     /// <summary>

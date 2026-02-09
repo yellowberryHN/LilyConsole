@@ -10,7 +10,11 @@ namespace LilyConsole.Helpers
     public static class AmuseIC
     {
         private static readonly char[] Alphabet = "0123456789ABCDEFGHJKLMNPRSTUWXYZ".ToCharArray();
-        private static readonly byte[] Key = { 0x7E,0x92,0x4E,0xD8,0xD8,0x84,0x64,0xC6,0x5C,0xB2,0xDE,0xEA,0xB0,0xB0,0xB0,0xCA,0x9A,0xCA,0x90,0xC2,0xB2,0xE0,0xF2,0x42 };
+        private static readonly byte[] Key =
+        {
+            0x7E,0x92,0x4E,0xD8,0xD8,0x84,0x64,0xC6,0x5C,0xB2,0xDE,0xEA,
+            0xB0,0xB0,0xB0,0xCA,0x9A,0xCA,0x90,0xC2,0xB2,0xE0,0xF2,0x42
+        };
 
         public static string GetID(byte[] idm)
         {
@@ -22,7 +26,7 @@ namespace LilyConsole.Helpers
             data = Unpack(Encrypt(data));
             
             Array.Resize(ref data, 16);
-            data[0] ^= 2;
+            data[0] ^= 2; // card type will always be felica, it's an NFC reader bro
             data[13] = 1;
             
             for (var i = 0; i <= 13; i++) data[i + 1] ^= data[i];

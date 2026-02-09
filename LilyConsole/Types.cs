@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using LilyConsole.Helpers;
@@ -47,6 +48,7 @@ namespace LilyConsole
         NextRead = 0x72,
         BeginWrite = 0x77,
         TouchData = 0x81,
+        TouchDataAnalog = 0x82,
         Unknown90 = 0x90,
         Unknown91 = 0x91,
         Unknown93 = 0x93,
@@ -59,11 +61,12 @@ namespace LilyConsole
         StartAutoScanChatter = 0x9F,
         GetSyncBoardVersion = 0xA0,
         UnknownA1 = 0xA1,
-        UnknownA2 = 0xA2,
+        GetActiveUnitBoards = 0xA2,
         UnknownRead = 0xA3,
         GetUnitBoardVersion = 0xA8,
         UnknownA9 = 0xA9,
         UnknownBC = 0xBC,
+        StartAutoScanAnalog = 0xBD,
         UnknownC0 = 0xC0,
         UnknownC1 = 0xC1,
         UnknownC8 = 0xC8,
@@ -551,7 +554,8 @@ namespace LilyConsole
     public enum ReaderCardType
     {
         Mifare = 1,
-        FeliCa = 2
+        FeliCa = 2,
+        Both = Mifare | FeliCa
     }
 
     /// <summary>
@@ -565,5 +569,99 @@ namespace LilyConsole
         Blue = 0x4
     }
     
+    #endregion
+
+    #region IO4
+
+    [Flags]
+    public enum IO4ButtonState
+    {
+        VolumeDown = 1 << 0,
+        VolumeUp = 1 << 1,
+        Service = 1 << 6,
+        Test = 1 << 9
+    }
+
+    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    public struct IO4Report
+    {
+        public readonly byte reportId;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 8)]
+        public readonly ushort[] adc;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 4)]
+        public readonly ushort[] rotary;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 2)]
+        public readonly ushort[] coin;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 2)]
+        public readonly ushort[] buttons;
+        
+        public readonly BoardStatus boardStatus;
+        public readonly UsbStatus usbStatus;
+
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 29)]
+        public readonly byte[] unique;
+        
+        [StructLayout(LayoutKind.Sequential, Pack = 1)]
+        public readonly struct BoardStatus
+        {
+            private readonly byte value;
+
+            public byte resetReason => (byte)(value & 0x0F);
+            public bool timeoutSet => (value & 0x10) != 0;
+            public bool sampleCountSet => (value & 0x20) != 0;
+        }
+
+        [StructLayout(LayoutKind.Sequential, Pack = 1)]
+        public readonly struct UsbStatus
+        {
+            private readonly byte value;
+
+            public bool timeoutOccurred => (value & 0x04) != 0;
+        }
+
+        public static IO4Report Build(byte[] raw)
+        {
+            if (raw.Length != Marshal.SizeOf(typeof(IO4Report)))
+            {
+                throw new ArgumentException($"Expected data size: {Marshal.SizeOf(typeof(IO4Report))}, but got {raw.Length}");
+            }
+            
+            var handle = GCHandle.Alloc(raw, GCHandleType.Pinned);
+            try
+            {
+                var ptr = handle.AddrOfPinnedObject();
+                return Marshal.PtrToStructure<IO4Report>(ptr);
+            }
+            finally
+            {
+                handle.Free();
+            }
+        }
+
+        public override string ToString()
+        {
+            var sb = new StringBuilder();
+
+            sb.Append($"Buttons:\n");
+            
+            foreach (var button in buttons)
+            {
+                var binaryChar = Convert.ToString(button, 2).PadLeft(16, '0').ToCharArray();
+                Array.Reverse(binaryChar);
+                sb.Append(string.Join(" ", (new string(binaryChar)).ToCharArray()) + "\n");
+            }
+            
+            sb.Append("Timeout Set?: " + boardStatus.timeoutSet);
+            sb.Append("\n");
+            sb.Append("Sample Count Set?: " + boardStatus.sampleCountSet);
+            sb.Append("\n");
+            sb.Append("Timeout Occurred?: " + usbStatus.timeoutOccurred);
+            sb.Append("\n");
+            sb.Append("Reset Reason: " + boardStatus.resetReason);
+            
+            return sb.ToString();
+        }
+    }
+
     #endregion
 }
