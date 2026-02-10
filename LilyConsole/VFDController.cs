@@ -75,6 +75,10 @@ namespace LilyConsole
             Encoding unicodeEncoding = Encoding.Unicode;
             Encoding correctEncoding = Encoding.GetEncoding(_langMap[language]);
             
+            // important to prevent encoding exceptions
+            // TODO: try all supported encodings before falling back, switch language automatically?
+            correctEncoding.EncoderFallback = EncoderFallback.ReplacementFallback;
+            
             byte[] unicodeBytes = unicodeEncoding.GetBytes(text);
             byte[] encodedBytes = Encoding.Convert(unicodeEncoding, correctEncoding, unicodeBytes);
 
@@ -97,7 +101,7 @@ namespace LilyConsole
         /// <param name="text">The text to write.</param>
         public void WriteASCII(string text)
         {
-            text = Regex.Replace(text, @"[^\u0000-\u007F]+", " ");
+            text = Regex.Replace(text, @"[^\u0000-\u007F]+", "?");
             RawWrite(Encoding.ASCII.GetBytes(text));
         }
 

@@ -72,15 +72,15 @@ namespace LilyConsole.Helpers
         }
 
         [DllImport("USBIntLED")]
-        private static extern int USBIntLED_set(int data1, LedData ledData);
+        private static extern int USBIntLED_set(int offset, LedData ledData);
 
-        public static bool Safe_USBIntLED_set(int data1, LedData ledData)
+        public static bool Safe_USBIntLED_set(int offset, LedData ledData)
         {
             if (_dllMissing) return false;
 
             try
             {
-                return USBIntLED_set(data1, ledData) == 0;
+                return USBIntLED_set(offset, ledData) == 0;
             }
             catch (DllNotFoundException)
             {

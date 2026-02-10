@@ -16,17 +16,24 @@ namespace LilyConsole
     public struct ActiveSegment
     {
         /// <summary>
-        /// Row number, from closest to screen to furthest.
-        /// </summary>
-        /// <remarks>Range: 0-3</remarks>
-        public byte x { get; }
-
-        /// <summary>
         /// Column number, from the top left, around the ring to the top right.
         /// </summary>
         /// <remarks>Range: 0-59</remarks>
+        public byte x { get; }
+        
+        /// <summary>
+        /// Row number, from closest to screen to furthest.
+        /// </summary>
+        /// <remarks>Range: 0-3</remarks>
         public byte y { get; }
 
+        /// <summary>
+        /// Create a new active segment description
+        /// <br/><br/>
+        /// IMPORTANT: <see cref="TouchController.touchData"/> is accessed [Y,X], <see cref="ActiveSegment"/> is addressed (X,Y)! 
+        /// </summary>
+        /// <param name="x">The column of the segment</param>
+        /// <param name="y">The row of the segment</param>
         public ActiveSegment(byte x, byte y)
         {
             this.x = x;
