@@ -5,60 +5,54 @@ using System.IO;
 using System.Text;
 using System.Threading;
 using System.IO.Ports;
+using System.Linq;
+using System.Threading.Tasks;
 
 namespace LilyConsole
 {
     public class TouchController
     {
+        public bool Initialized => LeftSide.Initialized && RightSide.Initialized;
+
         /// <summary>
         /// Manager for the left side of the console.
         /// </summary>
-        private SyncBoardController ringL;
+        public SyncBoardController LeftSide;
         /// <summary>
         /// Manager for the right side of the console.
         /// </summary>
-        private SyncBoardController ringR;
-
-        private string leftPort;
-        private string rightPort;
-
-        /// <summary>
-        /// When to draw lights, flips state after every read to even out to ~62fps
-        /// </summary>
         /// <remarks>
-        /// Only checks the state of the left sync board, but if you don't have half the controller,
-        /// you have bigger issues than lights.
+        /// Please note that this controller is <see cref="SyncBoardController.Mirrored"/>, due
+        /// to being marked as <see cref="SyncBoardController.Normalized"/>.
         /// </remarks>
-        public bool ShouldDrawLights => ringL.ShouldDrawLights; 
+        public SyncBoardController RightSide;
+
+        private readonly string _leftPort;
+        private readonly string _rightPort;
+
+        public SyncBoardThresholds Thresholds = SyncBoardThresholds.Defaults();
+        
+        public event Action<List<ActiveSegment>> DataReceived;
+
+        public event Action<List<ActiveSegment>> TouchChanged;
+        public event Action<List<ActiveSegment>> TouchStarted;
+        public event Action<List<ActiveSegment>> TouchEnded;
 
         /// <summary>
         /// The last retrieved touch information as a multidimensional array (4x60).
         /// <br/><br/>
         /// IMPORTANT: <see cref="TouchController.TouchData"/> is accessed [Y,X], <see cref="ActiveSegment"/> is addressed (X,Y)! 
         /// </summary>
-        /// <remarks>Potentially subject to race conditions, depending on how you set up your touch polling.</remarks>
-        public bool[,] TouchData = new bool[4, 60];
-        
-        /// <summary>
-        /// Sets if the touchData buffer should be cleared before writing to it again.
-        /// Mostly relevant in cases of race conditions.
-        /// <list type="bullet">
-        /// <item><b>Enabled</b> — The buffer will be cleared, potential for dropped inputs</item>
-        /// <item><b>Disabled</b> — The buffer will not be cleared, potential for ghost inputs</item>
-        /// </list>
-        /// </summary>
-        public bool ClearBuffer {
-            get => ringL.ClearBuffer;
-            set {
-                ringL.ClearBuffer = value;
-                ringR.ClearBuffer = value;
-            }
-        }
+        public readonly bool[,] TouchData = new bool[4, 60];
         
         /// <summary>
         /// The last retrieved touch information as a list of coordinates.
         /// </summary>
-        public List<ActiveSegment> Segments = new List<ActiveSegment>();
+        public readonly List<ActiveSegment> Segments = new List<ActiveSegment>();
+        private readonly List<ActiveSegment> _lSegments = new List<ActiveSegment>();
+        private readonly List<ActiveSegment> _rSegments = new List<ActiveSegment>();
+        
+        
 
         /// <summary>
         /// Creates a new touch controller interface. This does not attempt communications with the console until
@@ -68,8 +62,8 @@ namespace LilyConsole
         /// <param name="rightPort">The name passed to <see cref="SerialPort"/> for the right side of the console.</param>
         public TouchController(string leftPort = "COM4", string rightPort = "COM3")
         {
-            this.leftPort = leftPort;
-            this.rightPort = rightPort;
+            _leftPort = leftPort;
+            _rightPort = rightPort;
         }
 
         /// <summary>
@@ -78,10 +72,48 @@ namespace LilyConsole
         /// <exception cref="System.IO.IOException">Will be thrown if serial port was not found.</exception>
         public void Initialize()
         {
-            ringL = new SyncBoardController(leftPort, 'L');
-            ringR = new SyncBoardController(rightPort, 'R');
-            ringL.Initialize();
-            ringR.Initialize();
+            LeftSide = new SyncBoardController(_leftPort, SyncBoardSide.Left) { Thresholds = this.Thresholds, Normalized = true };
+            RightSide = new SyncBoardController(_rightPort, SyncBoardSide.Right) { Thresholds = this.Thresholds, Normalized = true };
+            
+            LeftSide.DataReceived += OnTouchData;
+            RightSide.DataReceived += OnTouchData;
+
+            LeftSide.TouchChanged += OnTouchChanged;
+            RightSide.TouchChanged += OnTouchChanged;
+
+            LeftSide.TouchStarted += OnTouchStarted;
+            RightSide.TouchStarted += OnTouchStarted;
+            
+            LeftSide.Initialize();
+            RightSide.Initialize();
+        }
+
+        private void OnTouchData(List<ActiveSegment> segments, SyncBoardSide side)
+        {
+            _lSegments.Clear();
+            _lSegments.AddRange(segments);
+            _rSegments.Clear();
+            _rSegments.AddRange(segments);
+            MergeSegments();
+        }
+
+        private void OnTouchChanged(List<ActiveSegment> segments, SyncBoardSide side)
+        {
+            TouchChanged?.Invoke(Segments);
+        }
+
+        private void OnTouchStarted(List<ActiveSegment> segments, SyncBoardSide side)
+        {
+            
+        }
+
+        private void MergeSegments()
+        {
+            Segments.Clear();
+            Segments.AddRange(_lSegments);
+            Segments.AddRange(_rSegments);
+            
+            DataReceived?.Invoke(Segments);
         }
 
         /// <summary>
@@ -89,52 +121,17 @@ namespace LilyConsole
         /// </summary>
         public void Close()
         {
-            ringL.Close();
-            ringR.Close();
+            LeftSide.Close();
+            RightSide.Close();
         }
 
         /// <summary>
         /// Instructs all panels to start transmitting touch data.
         /// </summary>
-        public void StartTouchStream()
+        public void StartPolling()
         {
-            ringL.StartTouchStream();
-            ringR.StartTouchStream();
-        }
-
-        /// <summary>
-        /// Retrieves the latest touch data from both sides of the console and combine them.
-        /// The data is also used to update <see cref="TouchData"/> every time this is called.
-        /// </summary>
-        /// <returns>The latest touch data in a multi-dimensional array (4x60).</returns>
-        public bool[,] GetTouchData()
-        {
-            Segments.Clear();
-
-            var touchL = ringL.TouchData;
-            var touchR = ringR.TouchData;
-
-            for (byte row = 0; row < 4; row++)
-            {
-                for (byte column = 0; column < 30; column++)
-                {
-                    if(TouchData[row, column] = touchL[row, column])
-                    {
-                        Segments.Add(new ActiveSegment(column, row));
-                    }
-                }
-                
-                for (byte column = 0; column < 30; column++)
-                {
-                    // mirror the right side to normalize the data.
-                    if(TouchData[row, column + 30] = touchR[row, 29 - column])
-                    {
-                        Segments.Add(new ActiveSegment((byte)(column + 30), row));
-                    }
-                }
-            }
-
-            return TouchData;
+            LeftSide.StartPolling();
+            RightSide.StartPolling();
         }
         
         /// <summary>
@@ -162,7 +159,7 @@ namespace LilyConsole
             }
             Console.WriteLine("Current Touch Frame:");
             Console.Write(_debugSb.ToString());
-            Console.WriteLine($"Loop state: L: {ringL.LoopState,3}, R: {ringR.LoopState,3}");
+            Console.WriteLine($"Loop state: L: {LeftSide.LoopState,3}, R: {RightSide.LoopState,3}");
             Console.WriteLine($"Currently touched segments: {Segments.Count,3}");
             Console.SetCursorPosition(Console.CursorLeft, Console.CursorTop - 7);
         }
@@ -170,15 +167,40 @@ namespace LilyConsole
 
     public class SyncBoardController
     {
+        public bool Initialized { get; private set; } = false;
+        
         private SerialPort port;
         private string portName;
+
+        private Task _pollTask;
+        private CancellationTokenSource _pollCts;
+
+        public bool Polling => _pollTask != null;
         
-        public bool ShouldDrawLights => LoopState % 2 == 0;
+        private readonly byte[] _readBuffer = new byte[256];
+        private readonly byte[] _writeBuffer = new byte[256];
+
+        private TouchCommandType _touchType = TouchCommandType.TouchData;
+        
+        public SyncBoardThresholds Thresholds = SyncBoardThresholds.Defaults();
+        
+        public event Action<List<ActiveSegment>, SyncBoardSide> DataReceived;
+
+        public event Action<List<ActiveSegment>, SyncBoardSide> TouchChanged;
+        public event Action<List<ActiveSegment>, SyncBoardSide> TouchStarted;
+        public event Action<List<ActiveSegment>, SyncBoardSide> TouchEnded;
 
         /// <summary>
-        /// Used to determine if normalized data must be mirrored.
+        /// Whether the data should be normalized to the coordinate plane of the entire console.
+        /// This effectively mirrors the X axis on the input from right side.
         /// </summary>
-        public bool IsRight => Letter == 'R';
+        public bool Normalized;
+        
+        /// <summary>
+        /// Used to determine if data is presented with the X axis mirrored.
+        /// </summary>
+        public bool Mirrored => Normalized && Side == SyncBoardSide.Right;
+        
         /// <summary>
         /// The version string of the Sync Board.
         /// </summary>
@@ -187,10 +209,11 @@ namespace LilyConsole
         /// The version strings of all 6 Unit Boards, present in each of the 6 panels.
         /// Probably not a good sign if these don't match.
         /// </summary>
-        public string[] UnitVersions = new string[6];
+        public readonly string[] UnitVersions = new string[6];
         
-        private bool streamMode = false;
-        private byte[] lastRawData = new byte[24];
+        private readonly byte[] lastRawData = new byte[24];
+        
+        public bool ThrowOnChecksumError = true;
         
         /// <summary>
         /// The last retrieved touch information as a multidimensional array (4x30).
@@ -199,52 +222,33 @@ namespace LilyConsole
         /// IMPORTANT: <see cref="SyncBoardController.TouchData"/> is accessed [Y,X], <see cref="ActiveSegment"/> is addressed (X,Y)! 
         /// </summary>
         /// <remarks>Potentially subject to race conditions, depending on how you set up your touch polling.</remarks>
-        public bool[,] TouchData = new bool[4,30];
-
-        /// <summary>
-        /// Sets if the touchData buffer should be cleared before writing to it again.
-        /// Mostly relevant in cases of race conditions.
-        /// <list type="bullet">
-        /// <item><b>Enabled</b> — The buffer will be cleared, potential for dropped inputs</item>
-        /// <item><b>Disabled</b> — The buffer will not be cleared, potential for ghost inputs</item>
-        /// </list>
-        /// </summary>
-        public bool ClearBuffer = false;
-
-        /// <summary>
-        /// If the raw sensor reading increases above this number, the segment will be turned ON.
-        /// </summary>
-        public byte OnThreshold => _onThreshold;
-        private byte _onThreshold = 17;
+        public readonly bool[,] TouchData = new bool[4,30];
+        private readonly bool[,] _prevTouchData = new bool[4,30];
         
-        /// <summary>
-        /// If the raw sensor reading decreases below this number, the segment will be turned OFF.
-        /// </summary>
-        public byte OffThreshold => _offThreshold;
-        private byte _offThreshold = 12;
         
         /// <summary>
         /// The last retrieved touch information as a list of coordinates.
         /// </summary>
-        public List<ActiveSegment> Segments = new List<ActiveSegment>();
+        public readonly List<ActiveSegment> Segments = new List<ActiveSegment>();
+        private readonly List<ActiveSegment> _prevSegments = new List<ActiveSegment>();
+        
         public byte LoopState = 0;
 
         /// <summary>
-        /// The letter identifier of the side of the console this is.
+        /// The identifier of which side of the console this is.
         /// </summary>
-        public readonly char Letter;
+        public readonly SyncBoardSide Side;
         
         /// <param name="portName">The name passed to <see cref="SerialPort"/> for the specified side of the console.</param>
-        /// <param name="letter">The letter code of the side. Must be 'L' or 'R'.</param>
+        /// <param name="side">The letter code of the side. Must be 'L' or 'R'.</param>
         /// <exception cref="ArgumentException">Will be thrown if the letter code is not 'L' or 'R'.</exception>
-        public SyncBoardController(string portName, char letter)
+        public SyncBoardController(string portName, SyncBoardSide side)
         {
-            letter = char.ToUpper(letter);
-            if (letter != 'R' && letter != 'L')
+            if (side != SyncBoardSide.Left && side != SyncBoardSide.Right)
             {
-                throw new ArgumentException($"Letter {letter} is unknown to TouchManager.");
+                throw new ArgumentException($"Side {side} is unknown to TouchManager.");
             }
-            Letter = letter;
+            Side = side;
             
             this.portName = portName;
         }
@@ -255,6 +259,8 @@ namespace LilyConsole
         /// <exception cref="System.IO.IOException">Will be thrown if serial port was not found.</exception>
         public void Initialize()
         {
+            if (Initialized) return;
+            
             port = new SerialPort(portName, 115200);
             port.ReadTimeout = 0;
             
@@ -262,8 +268,10 @@ namespace LilyConsole
             ShutUpPlease();
             GetSyncVersion();
             GetUnitVersion();
+            Initialized = true;
+            
             GetActiveUnitBoards();
-            SetThresholds(_onThreshold, _onThreshold);
+            SetThresholds();
         }
 
         /// <summary>
@@ -273,15 +281,18 @@ namespace LilyConsole
         /// <remarks>This does not do anything if the connection is not open, to prevent weird states.</remarks>
         public void Close()
         {
-            if (!port.IsOpen) return;
-            port.DataReceived -= DataReceived;
-            ShutUpPlease();
-            TouchData = new bool[4, 30];
+            if (!Initialized) return;
+            StopTouchStream();
+            Array.Clear(TouchData, 0, TouchData.Length);
+            Array.Clear(_prevTouchData, 0, _prevTouchData.Length);
             Segments.Clear();
+            _prevSegments.Clear();
             LoopState = 0;
-            SyncVersion = String.Empty;
-            UnitVersions = new string[6];
+            SyncVersion = string.Empty;
+            Array.Clear(UnitVersions, 0, UnitVersions.Length);
             port.Close();
+
+            Initialized = false;
         }
 
         /// <summary>
@@ -290,6 +301,8 @@ namespace LilyConsole
         /// </summary>
         private void ShutUpPlease()
         {
+            if(_pollTask != null) return;
+            
             port.DiscardInBuffer();
             for (var i = 0; i < 5; i++)
             {
@@ -298,7 +311,6 @@ namespace LilyConsole
             }
             Thread.Sleep(20);
             port.DiscardInBuffer();
-            streamMode = false;
         }
         
         /// <summary>
@@ -307,8 +319,10 @@ namespace LilyConsole
         /// </summary>
         private void GetSyncVersion()
         {
-            SendCommand(TouchCommandType.GetSyncBoardVersion);
-            SyncVersion = Encoding.ASCII.GetString(ReadData(8).Data);
+            if (_pollTask != null) return;
+            
+            var cmd = RequestCommand(TouchCommandType.GetSyncBoardVersion);
+            SyncVersion = Encoding.ASCII.GetString(cmd.Data);
         }
 
         /// <summary>
@@ -320,10 +334,12 @@ namespace LilyConsole
         /// </exception>
         private void GetUnitVersion()
         {
-            SendCommand(TouchCommandType.GetUnitBoardVersion);
-            var info = Encoding.ASCII.GetString(ReadData(45).Data);
+            if (_pollTask != null) return;
+            
+            var cmd = RequestCommand(TouchCommandType.GetUnitBoardVersion);
+            var info = Encoding.ASCII.GetString(cmd.Data);
             SyncVersion = info.Substring(0, 6);
-            if (info[6] != Letter) throw new InvalidDataException("Sync Board disagrees which side it is!");
+            if (info[6] != Side.ToString()[0]) throw new InvalidDataException("Sync Board disagrees which side it is!");
             for (var i = 0; i < 6; i++)
             {
                 UnitVersions[i] = info.Substring(7+(i*6), 6);
@@ -335,18 +351,31 @@ namespace LilyConsole
         /// <returns>A <see cref="BitArray"/> with the states of the Unit Boards.</returns>
         public BitArray GetActiveUnitBoards()
         {
-            SendCommand(TouchCommandType.GetActiveUnitBoards);
-            return new BitArray(ReadData(3).Data);
+            if (!Initialized || _pollTask != null) return new BitArray(8);
+            
+            var cmd = RequestCommand(TouchCommandType.GetActiveUnitBoards);
+            return new BitArray(cmd.Data);
         }
 
-        public void SetThresholds(byte on, byte off)
+        /// <summary>
+        /// Set the activation thresholds for the touch panels. This currently doesn't work.
+        /// </summary>
+        /// <param name="on">If the raw sensor reading increases above this number, the segment will be turned ON.</param>
+        /// <param name="off">If the raw sensor reading decreases below this number, the segment will be turned OFF.</param>
+        /// <exception cref="InvalidDataException">Something went wrong.</exception>
+        public void SetThresholds()
         {
-            SendData(new byte[] { (byte)TouchCommandType.SetThresholds, 
+            if (!Initialized || _pollTask != null) return;
+
+            var on = Thresholds.OnThreshold;
+            var off = Thresholds.OffThreshold;
+            
+            SendCommand(TouchCommandType.SetThresholds, new [] {
                 on, on, on, on, on, on, // on x6, for each unit board
                 off, off, off, off, off, off // off x6, for each unit board
             });
 
-            var status = ReadData(3);
+            var status = ReadCommand(TouchCommandType.SetThresholds);
 
             if (status.Command != (byte)TouchCommandType.SetThresholds)
             {
@@ -356,11 +385,152 @@ namespace LilyConsole
             {
                 throw new InvalidDataException("Set Thresholds failed!");
             }
-            
-            _onThreshold = on;
-            _offThreshold = off;
         }
 
+        /// <summary>
+        /// Sends arbitrary data to the Sync Board.
+        /// </summary>
+        /// <param name="data">The byte array to send.</param>
+        private void SendData(byte[] data)
+        {
+            port.Write(data, 0, data.Length);
+        }
+        
+        /// <summary>
+        /// Sends a command to the Sync Board.
+        /// </summary>
+        /// <param name="command">The <see cref="TouchCommandType"/> to send.</param>
+        private void SendCommand(TouchCommandType command)
+        {
+            SendData(new[]{(byte)command});
+        }
+
+        /// <summary>
+        /// Sends a command to the Sync Board, with specified data. A checksum byte is appended for you.
+        /// </summary>
+        /// <param name="command">The <see cref="TouchCommandType"/> to send.</param>
+        /// <param name="data">The data to send.</param>
+        private void SendCommand(TouchCommandType command, byte[] data)
+        {
+            var combined = new byte[data.Length + 2];
+            data.CopyTo(combined, 1);
+            combined[0] = (byte)command;
+            combined[data.Length + 1] = TouchCommand.CalculateChecksum(combined);
+            
+            SendData(combined);
+        }
+        
+        /// <summary>
+        /// Reads returned data from a command sent to the Sync Board.
+        /// </summary>
+        /// <param name="type">The type of command that was sent</param>
+        /// <returns>The returned data, as a <see cref="TouchCommand"/>.</returns>
+        /// <exception cref="InvalidDataException">
+        /// If the returned data does not have a valid checksum, an exception will be thrown.
+        /// If <see cref="ThrowOnChecksumError"/> is false, invalid checksums will be ignored.
+        /// </exception>
+        /// <exception cref="NotSupportedException">
+        /// If the command return size is unknown, an exception will be thrown.
+        /// </exception>
+        private TouchCommand ReadCommand(TouchCommandType type)
+        {
+            if (!TouchCommand.ReadSize.TryGetValue(type, out var cmdSize))
+            {
+                throw new NotSupportedException("Command size not known!");
+            }
+            
+            port.Read(_readBuffer, 0, cmdSize);
+            
+            if (!TouchCommand.ValidateChecksum(_readBuffer, cmdSize) && ThrowOnChecksumError)
+            {
+                throw new InvalidDataException("Checksum failure!");
+            }
+
+            return new TouchCommand(_readBuffer);
+        }
+
+        private TouchCommand RequestCommand(TouchCommandType type)
+        {
+            SendCommand(type);
+            return ReadCommand(type);
+        }
+
+        private TouchCommand RequestCommand(TouchCommandType type, byte[] data)
+        {
+            SendCommand(type, data);
+            return ReadCommand(type);
+        }
+        
+        private readonly List<ActiveSegment> _segmentsTouchStart = new List<ActiveSegment>();
+        private readonly List<ActiveSegment> _segmentsTouchEnd = new List<ActiveSegment>();
+
+        private bool ReadTouchData()
+        {
+            _segmentsTouchStart.Clear();
+            _segmentsTouchEnd.Clear();
+
+            var touchSize = TouchCommand.ReadSize[_touchType];
+            port.Read(_readBuffer, 0, touchSize);
+            
+            if (_readBuffer[0] != (byte)_touchType)
+            {
+                Array.Clear(TouchData, 0, TouchData.Length);
+                throw new ArgumentException("that's not touch data.");
+            }
+
+            var newLoopState = _readBuffer[touchSize - 2];
+
+            if (LoopState != newLoopState) LoopState = newLoopState;
+            else return false; // no new data
+            
+            Buffer.BlockCopy(_readBuffer, 1, lastRawData, 0, 24);
+            
+            Buffer.BlockCopy(TouchData, 0, _prevTouchData, 0, TouchData.Length);
+            Array.Clear(TouchData, 0, TouchData.Length);
+
+            _prevSegments.AddRange(Segments);
+            Segments.Clear();
+            
+            for (byte row = 0; row < 4; row++)
+            {
+                for (byte panel = 0; panel < 6; panel++)
+                {
+                    var rowData = lastRawData[panel + (row * 6)];
+                    for (byte segment = 0; segment < 5; segment++)
+                    {
+                        var active = (rowData & (1 << segment)) != 0;
+                        
+                        var tX = (byte)(segment + (panel * 5));
+                        var sX = tX;
+                        
+                        if (Mirrored)
+                        {
+                            tX = (byte)(29 - tX);
+                            sX = (byte)(30 + tX);
+                        }
+
+                        if (active)
+                        {
+                            Segments.Add(new ActiveSegment(sX, row));
+                            TouchData[row, tX] = true;
+                        }
+
+                        switch (TouchData[row, tX])
+                        {
+                            case true when !_prevTouchData[row, tX]:
+                                _segmentsTouchStart.Add(new ActiveSegment(sX, row));
+                                break;
+                            case false when _prevTouchData[row, tX]:
+                                _segmentsTouchEnd.Add(new ActiveSegment(sX, row));
+                                break;
+                        }
+                    }
+                }
+            }
+
+            return true;
+        }
+        
         /// <summary>
         /// Instructs the panels to start streaming touch data over the connection.
         /// </summary>
@@ -368,15 +538,77 @@ namespace LilyConsole
         /// Thrown if the <see cref="TouchCommandType.StartAutoScan"/> message was not acknowledged,
         /// something went wrong.
         /// </exception>
-        public void StartTouchStream()
+        public void StartPolling(bool analog = false)
         {
-            // magic bytes, what do they do?????? who knows.
-            SendData(new byte[] { (byte)TouchCommandType.StartAutoScan, 0x7F, 0x3F, 0x64, 0x28, 0x44, 0x3B, 0x3A });
-            var ack = ReadData(3); // read ack
-            if (ack.Command != (byte)TouchCommandType.StartAutoScan)
+            if (!Initialized || _pollTask != null) return;
+            
+            // TODO: add support for StartAutoScanChatter and StartAutoScanGap (not really high priority)
+            
+            var commandType = analog ? TouchCommandType.StartAutoScanAnalog : TouchCommandType.StartAutoScan;
+
+            if (!analog)
+            {
+                // these parameters are not super well understood, but they are technically configurable.
+                SendCommand(commandType, new[]
+                {
+                    Thresholds.SwitchGapSumThreshold,
+                    Thresholds.SwitchGapSoloThreshold,
+                    Thresholds.UnitGapSumThreshold,
+                    Thresholds.UnitGapSoloThreshold,
+                    Thresholds.SwitchGapOffThreshold, 
+                    Thresholds.UnitGapOffThreshold
+                });
+            }
+            else
+            {
+                SendCommand(commandType);
+            }
+            var ack = ReadCommand(commandType); // read ack
+            if (ack.Command != (byte)commandType)
                 throw new InvalidDataException("Start Scan message was not acknowledged.");
-            streamMode = true;
-            port.DataReceived += DataReceived;
+
+            _touchType = analog ? TouchCommandType.TouchDataAnalog : TouchCommandType.TouchData;
+            
+            _pollCts = new CancellationTokenSource();
+            _pollTask = Task.Factory.StartNew(
+                () => PollThread(_pollCts.Token),
+                _pollCts.Token,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default);
+        }
+
+        private void PollThread(CancellationToken token)
+        {
+            Thread.CurrentThread.Priority = ThreadPriority.AboveNormal;
+
+            while (!token.IsCancellationRequested)
+            {
+                if (!ReadTouchData()) continue;
+
+                // this won't get called if loop state is identical after 2 calls, does this make sense?
+                DataReceived?.Invoke(Segments, Side);
+                
+                if (_segmentsTouchStart.Any() || _segmentsTouchEnd.Any())
+                    TouchChanged?.Invoke(Segments, Side);
+                if (_segmentsTouchStart.Any())
+                    TouchStarted?.Invoke(_segmentsTouchStart, Side);
+                if (_segmentsTouchEnd.Any())
+                    TouchEnded?.Invoke(_segmentsTouchEnd, Side);
+            }
+        }
+
+        public void StopTouchStream()
+        {
+            if (!Initialized || _pollTask == null) return;
+            
+            _pollCts.Cancel();
+            _pollTask.Wait();
+            
+            _pollCts.Dispose();
+            _pollCts = null;
+            _pollTask = null;
+            
+            ShutUpPlease();
         }
         
         /// <summary>
@@ -385,11 +617,11 @@ namespace LilyConsole
         public void DebugInfo()
         {
             Console.WriteLine("TouchManager Info:");
-            Console.WriteLine($"Side: {Letter}");
-            Console.WriteLine($"Mirrored input: {IsRight}");
+            Console.WriteLine($"Side: {Side}");
+            Console.WriteLine($"Mirrored input: {Mirrored}");
             Console.WriteLine($"Sync Board version: {SyncVersion}");
             Console.WriteLine($"Unit Board versions: {string.Join(",",UnitVersions)}");
-            if (!streamMode) return;
+            if (_pollTask == null) return;
             Console.WriteLine("===");
             Console.WriteLine($"Loop state: {LoopState}");
             Console.WriteLine($"Currently touched segments: {Segments.Count}");
@@ -424,168 +656,6 @@ namespace LilyConsole
             Console.WriteLine($"Loop state: {LoopState,3}");
             Console.WriteLine($"Currently touched segments: {Segments.Count,3}");
             Console.SetCursorPosition(Console.CursorLeft, Console.CursorTop-7);
-        }
-
-        
-        /// <summary>
-        /// Retrieves the latest touch data from the panels.
-        /// The data is also used to update <see cref="touchData"/> every time this is called.
-        /// </summary>
-        /// <exception cref="Exception">
-        /// If read data is not touch data an exception will be thrown.
-        /// </exception>
-        private void GetTouchData()
-        {
-            ParseTouchData(ReadData(36));
-        }
-        
-        /// <summary>
-        /// Retrieves the latest touch data from the panels.
-        /// The data is also used to update <see cref="TouchData"/> every time this is called.
-        /// </summary>
-        /// <remarks>This method is very temperamental, it cannot handle any data outside what it expects.</remarks>
-        /// <returns>The latest touch data in a multi-dimensional array (4x30).</returns>
-        /// <exception cref="InvalidDataException">
-        /// Thrown if the provided command is not touch data (<see cref="TouchCommandType.TouchData"/>).
-        /// </exception>
-        private bool[,] ParseTouchData(TouchCommand stream)
-        {
-            Segments.Clear();
-            var raw = stream.Command != 0 ? stream : ReadData(36);
-            if (raw.Command != (byte)TouchCommandType.TouchData) throw new InvalidDataException("that's not touch data.");
-
-            // check if we got the same frame twice, exceedingly unlikely.
-            // if we did, just return what we have already.
-            if (LoopState != raw.Data[raw.Data.Length - 1])
-                LoopState = raw.Data[raw.Data.Length - 1];
-            else return TouchData;
-            
-            if(ClearBuffer) Array.Clear(TouchData, 0, TouchData.Length);
-            
-            Array.Copy(raw.Data, 0, lastRawData, 0, 24);
-            
-            for (byte row = 0; row < 4; row++)
-            {
-                for (byte panel = 0; panel < 6; panel++)
-                {
-                    var rowData = lastRawData[panel + (row * 6)];
-                    for (byte segment = 0; segment < 5; segment++)
-                    {
-                        var active = (rowData & (1 << segment)) != 0;
-                        
-                        var x = (byte)(segment + (panel * 5));
-                        
-                        if (active) Segments.Add(new ActiveSegment(x, row));
-                        TouchData[row, x] = active;
-                    }
-                }
-            }
-
-            return TouchData;
-        } 
-        /// <summary>
-        /// Sends a command to the Sync Board.
-        /// </summary>
-        /// <param name="data">The <see cref="TouchCommandType"/> to send.</param>
-        private void SendCommand(TouchCommandType data)
-        {
-            SendData(new[]{(byte)data});
-        }
-        
-        /// <summary>
-        /// Sends arbitrary data to the Sync Board.
-        /// </summary>
-        /// <param name="data">The byte array to send.</param>
-        private void SendData(byte[] data)
-        {
-            port.Write(data, 0, data.Length);
-        }
-        
-        /// <summary>
-        /// Reads returned data from the Sync Board.
-        /// </summary>
-        /// <param name="size">How many bytes to read.</param>
-        /// <returns>The returned data, as a <see cref="TouchCommand"/>.</returns>
-        /// <exception cref="InvalidDataException">
-        /// If the returned data does not have a valid checksum, an exception will be thrown.
-        /// </exception>
-        private TouchCommand ReadData(int size)
-        {
-            var raw = new byte[size];
-            while (port.BytesToRead < size) {
-              
-            }
-            port.Read(raw, 0, size);
-            
-            if (!TouchCommand.ValidateChecksum(raw))
-            {
-                throw new InvalidDataException("Checksum failure!");
-            }
-
-            return new TouchCommand(raw);
-        }
-
-        /// <summary>
-        /// Is called every time data is received after touch streaming is enabled.
-        /// If the data to read exceeds 36 characters (the size of a touch "frame"),
-        /// it will process the data. Not terribly elegant, but it works.
-        /// </summary>
-        private void DataReceived(object sender, SerialDataReceivedEventArgs e)
-        {
-            if (port.BytesToRead >= 36)
-            {
-                GetTouchData();
-            }
-        }
-        
-        ~SyncBoardController() => Close();
-    }
-
-    /// <summary>
-    /// A wrapper for a touch board command.
-    /// </summary>
-    public struct TouchCommand
-    {
-        public byte Command;
-        public byte[] Data;
-        public byte Checksum;
-
-        public TouchCommand(byte[] raw)
-        {
-            Data = new byte[raw.Length - 2];
-            Command = raw[0];
-            Checksum = raw[raw.Length - 1];
-            Array.Copy(raw, 1, Data, 0, Data.Length);
-        }
-        
-        /// <summary>
-        /// Validates the checksum on the end of a given full payload.
-        /// </summary>
-        /// <param name="packet">The bytes of the payload to be validated.</param>
-        /// <returns>The validity of the checksum</returns>
-        public static bool ValidateChecksum(byte[] packet)
-        {
-            byte chk = 0x00;
-            for (var i = 0; i < packet.Length - 1; i++)
-                chk ^= packet[i];
-            chk ^= 128;
-            return packet[packet.Length - 1] == chk;
-        }
-
-        public static explicit operator TouchCommand(byte[] raw)
-        {
-            return new TouchCommand(raw);
-        }
-
-        public static explicit operator byte[](TouchCommand cmd)
-        {
-            var raw = new byte[cmd.Data.Length + 2];
-
-            raw[0] = cmd.Command;
-            Array.Copy(cmd.Data, 0, raw, 1, cmd.Data.Length);
-            raw[raw.Length - 1] = cmd.Checksum;
-            
-            return raw;
         }
     }
 }

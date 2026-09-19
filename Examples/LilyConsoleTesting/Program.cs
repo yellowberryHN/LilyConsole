@@ -1,5 +1,6 @@
 ﻿using LilyConsole;
 using System;
+using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
@@ -68,8 +69,69 @@ namespace LilyConsoleTesting
                     case '9':
                         IO4Test();
                         break;
+                    case 'd':
+                        DebugDrawTest();
+                        break;
                 }
             }
+        }
+
+        private static void DebugDrawTest()
+        {
+            var dd = new DebugDraw();
+            Console.WriteLine("Testing drawing!");
+            
+            var lights = new LightController();
+            if (!lights.Initialize())
+            {
+                Console.WriteLine("Failed to load lights!");
+            };
+
+            var testFrame = new LightFrame(LightColor.Blue);
+            testFrame.AddLayer(new LightLayer());
+            
+            lights.SendLightFrame(testFrame);
+
+            bool circle = true;
+            bool point = true;
+            bool mouse = true;
+            
+            while (true)
+            {
+                if (Console.KeyAvailable)
+                {
+                    var conKey = Console.ReadKey(true);
+
+                    switch (conKey.Key)
+                    {
+                        case ConsoleKey.P:
+                            point = !point;
+                            break;
+                        case ConsoleKey.C:
+                            circle = !circle;
+                            break;
+                        case ConsoleKey.M:
+                            mouse = !mouse;
+                            break;
+                    }
+                    
+                    if (conKey.Key == ConsoleKey.Escape) break;
+                }
+                
+                if (point) dd.CenterPoint();
+                if (circle) dd.CircleBounds();
+                if (mouse)
+                {
+                    var column = dd.DrawClosestPoint();
+                    var layer = new LightLayer();
+                    layer[column, 0] = layer[column, 1] = layer[column, 2] = layer[column, 3] =LightColor.Red;
+                    testFrame.layers[1] = layer;
+                    Thread.Sleep(16);
+                    lights.SendLightFrame(testFrame);
+                }
+            }
+            
+            lights.Close();
         }
 
         // this is not a proper way to do things, don't do this.
@@ -81,14 +143,14 @@ namespace LilyConsoleTesting
 
         public static void TouchLTest()
         {
-            var ringL = new SyncBoardController("COM4", 'L');
+            var ringL = new SyncBoardController("COM4", SyncBoardSide.Left);
 
             ringL.Initialize();
             ringL.DebugInfo();
             Console.ReadKey();
             Console.WriteLine("Starting Touch Stream...");
             Console.CursorVisible = false;
-            ringL.StartTouchStream();
+            ringL.StartPolling();
             while (!(Console.KeyAvailable && Console.ReadKey(true).Key == ConsoleKey.Escape))
             {
                 if (ringL.Segments.Count > 0) ringL.DebugTouch();
@@ -98,14 +160,14 @@ namespace LilyConsoleTesting
 
         public static void TouchRTest()
         {
-            var ringR = new SyncBoardController("COM3", 'R');
+            var ringR = new SyncBoardController("COM3", SyncBoardSide.Right);
 
             ringR.Initialize();
             ringR.DebugInfo();
             Console.ReadKey();
             Console.WriteLine("Starting Touch Stream...");
             Console.CursorVisible = false;
-            ringR.StartTouchStream();
+            ringR.StartPolling();
             while (!(Console.KeyAvailable && Console.ReadKey(true).Key == ConsoleKey.Escape))
             {
                 if (ringR.Segments.Count > 0) ringR.DebugTouch();
@@ -119,11 +181,10 @@ namespace LilyConsoleTesting
             controller.Initialize();
             Console.CursorVisible = false;
             Console.WriteLine("Starting touch streams!");
-            controller.StartTouchStream();
+            controller.StartPolling();
             Console.WriteLine("Started!");
             while (!(Console.KeyAvailable && Console.ReadKey(true).Key == ConsoleKey.Escape))
             {
-                controller.GetTouchData();
                 controller.DebugTouch();
             }
             controller.Close();
@@ -135,7 +196,7 @@ namespace LilyConsoleTesting
             controller.Initialize();
             Console.CursorVisible = false;
             Console.WriteLine("Starting touch streams!");
-            controller.StartTouchStream();
+            controller.StartPolling();
             Console.WriteLine("Started!");
             
             var lights = new LightController();
@@ -163,14 +224,13 @@ namespace LilyConsoleTesting
                     }
                 }
                 
-                controller.GetTouchData();
-                if (controller.ShouldDrawLights)
-                {
-                    frame.AddTouchData(controller.Segments);
-                    lights.SendLightFrame(frame);
-                }
+                frame.AddTouchData(controller.Segments);
+                lights.SendLightFrame(frame);
+                
                 //lights.SendLightFrame(frame, controller.segments);
                 if(debugShown) controller.DebugTouch();
+                // sleep for as short as possible, 1ms is not attainable
+                Thread.Sleep(1);
             }
             
             controller.Close();
@@ -268,21 +328,21 @@ namespace LilyConsoleTesting
             reader.SetColor(LightColor.Blue);
             reader.RadioOn(); // very important step
             Console.WriteLine("Polling!");
-            while (reader.lastPoll.Count == 0 || Console.KeyAvailable)
+            ReaderResponseStatus pollStatus;
+            while (reader.lastPoll.Count == 0)
             {
-                Thread.Sleep(150); // minimum recommended delay is 150ms, or about ever 10 frames at 60hz
+                // minimum recommended delay is 150ms, or about every 10 frames at 60hz
+                Thread.Sleep(150);
+                
                 Console.Write('.');
-                ReaderResponseStatus pollStatus;
                 if ((pollStatus = reader.Poll()) != ReaderResponseStatus.Ok)
                 {
                     Console.WriteLine($"Poll returned {pollStatus}!");
                 }
 
-                if (Console.ReadKey(true).Key == ConsoleKey.Escape)
-                {
-                    reader.Close();
-                    return;
-                }
+                if (!Console.KeyAvailable || Console.ReadKey(true).Key != ConsoleKey.Escape) continue;
+                reader.Close();
+                return;
             }
             Console.WriteLine(Environment.NewLine);
             try
@@ -336,18 +396,15 @@ namespace LilyConsoleTesting
             Console.WriteLine("Lights enabled!");
             Console.ReadKey(true);
             io4.SetColor(new LightColor(255, 0, 255));
-            io4.ClearBuffer();
             Console.WriteLine("Going full ham! (no delay)");
             while (!(Console.KeyAvailable && Console.ReadKey(true).Key == ConsoleKey.Escape))
             {
-                io4.Poll();
                 io4.ButtonLights();
             }
             io4.SetColor(LightColor.Green);
             Console.WriteLine("Simulating ideal input poll rate (8ms)");
             while (!(Console.KeyAvailable && Console.ReadKey(true).Key == ConsoleKey.Escape))
             {
-                io4.Poll();
                 io4.ButtonLights();
                 Thread.Sleep(8);
             }
@@ -355,7 +412,6 @@ namespace LilyConsoleTesting
             Console.WriteLine("Simulating typical 60hz game loop (17ms)");
             while (!(Console.KeyAvailable && Console.ReadKey(true).Key == ConsoleKey.Escape))
             {
-                io4.Poll(1);
                 io4.ButtonLights();
                 Thread.Sleep(17);
             }
@@ -363,7 +419,6 @@ namespace LilyConsoleTesting
             Console.WriteLine("Simulating 30hz game loop (33ms)");
             while (!(Console.KeyAvailable && Console.ReadKey(true).Key == ConsoleKey.Escape))
             {
-                io4.Poll(3);
                 io4.ButtonLights();
                 Thread.Sleep(33);
             }

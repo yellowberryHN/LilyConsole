@@ -14,6 +14,8 @@ namespace LilyConsole
 {
     public class VFDController
     {
+        public bool Initialized { get; private set; } = false;
+        
         private SerialPort port;
         private string portName;
         public Lang language { get; private set; } = Lang.SIMP_CHINESE;
@@ -38,6 +40,8 @@ namespace LilyConsole
         /// <exception cref="System.IO.IOException">Will be thrown if serial port was not found.</exception>
         public void Initialize()
         {
+            if (Initialized) return;
+            
             port = new SerialPort(portName, 115200);
             
             port.Open();
@@ -49,6 +53,8 @@ namespace LilyConsole
             Language(Lang.JAPANESE);
             FontSize(Font._16_16);
             PowerOff(); // this might reset all of these settings??? idk.
+            
+            Initialized = true;
         }
         
         private void RawWrite(byte number)
@@ -72,12 +78,9 @@ namespace LilyConsole
 
         private void RawWrite(string text)
         {
+            // TODO: move this to Write(string), should not be here
             Encoding unicodeEncoding = Encoding.Unicode;
-            Encoding correctEncoding = Encoding.GetEncoding(_langMap[language]);
-            
-            // important to prevent encoding exceptions
-            // TODO: try all supported encodings before falling back, switch language automatically?
-            correctEncoding.EncoderFallback = EncoderFallback.ReplacementFallback;
+            Encoding correctEncoding = Encoding.GetEncoding(_langMap[language], EncoderFallback.ReplacementFallback, DecoderFallback.ReplacementFallback);
             
             byte[] unicodeBytes = unicodeEncoding.GetBytes(text);
             byte[] encodedBytes = Encoding.Convert(unicodeEncoding, correctEncoding, unicodeBytes);
@@ -360,10 +363,14 @@ namespace LilyConsole
         /// </summary>
         public void Close()
         {
+            if(!Initialized) return;
+            
             Clear();
             Reset();
             PowerOff();
             port.Close();
+            
+            Initialized = false;
         }
 
         #if !NETFRAMEWORK

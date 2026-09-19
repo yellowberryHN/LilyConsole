@@ -13,19 +13,19 @@ namespace LilyConsole
     /// <summary>
     /// Information for a currently active segment.
     /// </summary>
-    public struct ActiveSegment
+    public readonly struct ActiveSegment : IEquatable<ActiveSegment>
     {
         /// <summary>
         /// Column number, from the top left, around the ring to the top right.
         /// </summary>
         /// <remarks>Range: 0-59</remarks>
-        public byte x { get; }
+        public byte X { get; }
         
         /// <summary>
         /// Row number, from closest to screen to furthest.
         /// </summary>
         /// <remarks>Range: 0-3</remarks>
-        public byte y { get; }
+        public byte Y { get; }
 
         /// <summary>
         /// Create a new active segment description
@@ -36,13 +36,31 @@ namespace LilyConsole
         /// <param name="y">The row of the segment</param>
         public ActiveSegment(byte x, byte y)
         {
-            this.x = x;
-            this.y = y;
+            X = x;
+            Y = y;
         }
 
         public override string ToString()
         {
-            return $"[{x},{y:D2}]";
+            return $"[{X},{Y:D2}]";
+        }
+
+        public bool Equals(ActiveSegment other)
+        {
+            return X == other.X && Y == other.Y;
+        }
+
+        public override bool Equals(object obj)
+        {
+            return obj is ActiveSegment other && Equals(other);
+        }
+
+        public override int GetHashCode()
+        {
+            unchecked
+            {
+                return (X.GetHashCode() * 397) ^ Y.GetHashCode();
+            }
         }
     }
     
@@ -80,11 +98,151 @@ namespace LilyConsole
         StartAutoScan = 0xC9,
     }
     
+    /// <summary>
+    /// A wrapper for a touch board command.
+    /// </summary>
+    public struct TouchCommand
+    {
+        public byte Command;
+        public byte[] Data;
+        public byte Checksum;
+
+        public TouchCommand(byte[] buffer, int size)
+        {
+            Data = new byte[size - 2];
+            Command = buffer[0];
+            Checksum = buffer[size - 1];
+            Array.Copy(buffer, 1, Data, 0, Data.Length);
+        }
+
+        public TouchCommand(byte[] raw) : this(raw, raw.Length) { }
+        
+        /// <summary>
+        /// Validates the checksum on the end of a given full payload.
+        /// </summary>
+        /// <param name="packet">The bytes of the payload to be validated.</param>
+        /// <returns>The validity of the checksum</returns>
+        public static bool ValidateChecksum(byte[] packet, int length = 0)
+        {
+            var len = length > 0 ? length : packet.Length;
+            
+            return packet[len - 1] == CalculateChecksum(packet, len);
+        }
+
+        public static byte CalculateChecksum(byte[] packet, int length = 0)
+        {
+            var len = length > 0 ? length : packet.Length;
+            
+            byte chk = 0x00;
+            for (var i = 0; i < len - 1; i++)
+                chk ^= packet[i];
+            chk ^= 128;
+            return chk;
+        }
+
+        public static explicit operator TouchCommand(byte[] raw)
+        {
+            return new TouchCommand(raw);
+        }
+
+        public static explicit operator byte[](TouchCommand cmd)
+        {
+            var raw = new byte[cmd.Data.Length + 2];
+
+            raw[0] = cmd.Command;
+            Array.Copy(cmd.Data, 0, raw, 1, cmd.Data.Length);
+            raw[raw.Length - 1] = cmd.Checksum;
+            
+            return raw;
+        }
+
+        public override string ToString()
+        {
+            return $"{Command:X} -> [{Data.Length}] -> {Checksum:X}";
+        }
+
+        public static readonly Dictionary<TouchCommandType, int> ReadSize = new Dictionary<TouchCommandType, int>()
+        {
+            { TouchCommandType.GetActiveUnitBoards, 3 },
+            { TouchCommandType.GetUnitBoardVersion, 45 },
+            { TouchCommandType.GetSyncBoardVersion, 8 },
+            { TouchCommandType.SetThresholds, 3 },
+            { TouchCommandType.StartAutoScan, 3 },
+            { TouchCommandType.StartAutoScanAnalog, 3 },
+            { TouchCommandType.TouchData, 36 },
+            { TouchCommandType.TouchDataAnalog, 244 }
+        };
+    }
+    
+    public enum SyncBoardSide
+    {
+        // ToString hacks, don't use these
+        
+        /// <summary>
+        /// The left sync board. Don't use this, use <see cref="SyncBoardSide.Left"/>.
+        /// </summary>
+        [Obsolete("Use SyncBoardSide.Left instead", true)]
+        L = 0,
+        /// <summary>
+        /// The right sync board. Don't use this, use <see cref="SyncBoardSide.Right"/>.
+        /// </summary>
+        [Obsolete("Use SyncBoardSide.Right instead", true)]
+        R = 1,
+        
+        // Use these
+        
+        /// <summary>
+        /// The left sync board.
+        /// </summary>
+        Left = 0,
+        /// <summary>
+        /// The right sync board.
+        /// </summary>
+        Right = 1,
+    }
+
+    public struct SyncBoardThresholds
+    {
+        /// <summary>
+        /// If the raw sensor reading increases above this number, the segment will be turned ON.
+        /// </summary>
+        public byte OnThreshold;
+        
+        /// <summary>
+        /// If the raw sensor reading decreases below this number, the segment will be turned OFF.
+        /// </summary>
+        public byte OffThreshold;
+        
+        public byte SwitchGapSumThreshold;
+        public byte SwitchGapSoloThreshold;
+                
+        public byte UnitGapSumThreshold;
+        public byte UnitGapSoloThreshold;
+                
+        public byte SwitchGapOffThreshold;
+        public byte UnitGapOffThreshold;
+
+        public static SyncBoardThresholds Defaults()
+        {
+            return new SyncBoardThresholds
+            {
+                OnThreshold = 17,
+                OffThreshold = 12,
+                SwitchGapSumThreshold = 127,
+                SwitchGapSoloThreshold = 63,
+                UnitGapSumThreshold = 100,
+                UnitGapSoloThreshold = 40,
+                SwitchGapOffThreshold = 68,
+                UnitGapOffThreshold = 59
+            };
+        }
+    }
+    
     #endregion
 
     #region Lights
     
-    public struct LightColor : IEquatable<LightColor>
+    public readonly struct LightColor : IEquatable<LightColor>
     {
         public static LightColor Red => new LightColor(255, 0, 0);
         public static LightColor Green => new LightColor(0, 255, 0);
@@ -99,10 +257,10 @@ namespace LilyConsole
         /// <remarks>This is probably way unnecessary.</remarks>
         public readonly uint value;
         
-        public byte r => (byte)value;
-        public byte g => (byte)(value >> 8);
-        public byte b => (byte)(value >> 16);
-        public byte a => (byte)(value >> 24);
+        public byte R => (byte)value;
+        public byte G => (byte)(value >> 8);
+        public byte B => (byte)(value >> 16);
+        public byte A => (byte)(value >> 24);
 
         public LightColor(byte r, byte g, byte b, byte a = 0xFF)
         {
@@ -186,7 +344,7 @@ namespace LilyConsole
                 for (var i = 0; i < 480; i++)
                 {
                     LightColor light = layer[i];
-                    if (light.a != 0)
+                    if (light.A != 0)
                     {
                         buffer[i] = light;
                     }
@@ -198,7 +356,7 @@ namespace LilyConsole
             for (var i = 0; i < 480; i++)
             {
                 LightColor touchLight = _touchLayer[i];
-                if (touchLight.a != 0)
+                if (touchLight.A != 0)
                 {
                     buffer[i] = touchLight;
                 }
@@ -274,7 +432,7 @@ namespace LilyConsole
         /// <param name="color2">The color for the top LED.</param>
         public void SetSegmentColor(ActiveSegment segment, LightColor color1, LightColor color2)
         {
-            SetSegmentColor(segment.x, segment.y, color1, color2);
+            SetSegmentColor(segment.X, segment.Y, color1, color2);
         }
         
         /// <summary>
@@ -304,7 +462,7 @@ namespace LilyConsole
             else // right side
                 lower = (ushort)(480 - ((x - 29) * 8 + (y - 3) * 2));
             
-            return new ushort[] { lower, (ushort)(lower + 1) };
+            return new[] { lower, (ushort)(lower + 1) };
         }
 
         public static LightLayer FromTouchData(List<ActiveSegment> segments)
@@ -628,20 +786,13 @@ namespace LilyConsole
 
         public static IO4Report Build(byte[] raw)
         {
-            if (raw.Length != Marshal.SizeOf(typeof(IO4Report)))
+            // unsafe here is like 5x faster, worth it
+            unsafe
             {
-                throw new ArgumentException($"Expected data size: {Marshal.SizeOf(typeof(IO4Report))}, but got {raw.Length}");
-            }
-            
-            var handle = GCHandle.Alloc(raw, GCHandleType.Pinned);
-            try
-            {
-                var ptr = handle.AddrOfPinnedObject();
-                return Marshal.PtrToStructure<IO4Report>(ptr);
-            }
-            finally
-            {
-                handle.Free();
+                fixed (byte* p = &raw[0])
+                {
+                    return (IO4Report)Marshal.PtrToStructure(new IntPtr(p), typeof(IO4Report));
+                }
             }
         }
 
@@ -668,6 +819,18 @@ namespace LilyConsole
             
             return sb.ToString();
         }
+    }
+    
+    public struct IO4Info
+    {
+        public string boardType;
+        public string boardNumber;
+        public byte mode;
+        public byte firmwareRev;
+        public ushort firmwareChecksum;
+        public string chipNumber;
+        public byte config;
+        public Dictionary<string, string> features;
     }
 
     #endregion

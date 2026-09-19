@@ -4,6 +4,7 @@
     <PropertyGroup>
         <AssemblyName>LilyConsole</AssemblyName>
         <TargetFramework>net452</TargetFramework>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     </PropertyGroup>
     <ItemGroup>
         <Reference Include="System" />
@@ -14,5 +15,10 @@
     </ItemGroup>
     <ItemGroup>
         <PackageReference Include="HidSharp" Version="2.6.4" />
+    </ItemGroup>
+    <ItemGroup>
+      <Compile Include="FTDIController.cs" />
+      <Compile Include="Helpers\Drawing.cs" />
+      <Compile Include="Screen.cs" />
     </ItemGroup>
 </Project>

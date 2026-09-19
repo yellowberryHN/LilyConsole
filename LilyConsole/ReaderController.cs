@@ -10,6 +10,8 @@ namespace LilyConsole
     // https://github.com/whowechina/aic_pico/blob/main/firmware/src/lib/aime.c
     public class ReaderController
     {
+        public bool Initialized { get; private set; } = false;
+        
         private SerialPort port;
         private string portName;
         private bool highRate;
@@ -45,6 +47,8 @@ namespace LilyConsole
         /// </summary>
         public void Initialize()
         {
+            if (Initialized) return;
+            
             port = new SerialPort(portName, highRate ? 115200 : 38400);
         
             port.Open();
@@ -52,6 +56,8 @@ namespace LilyConsole
             GetFirmwareVersion();
             GetHardwareVersion();
             SetDefaultKeys();
+            
+            Initialized = true;
         }
 
         /// <summary>
@@ -63,6 +69,8 @@ namespace LilyConsole
             ClearColor();
             RadioOff();
             port.Close();
+            
+            Initialized = false;
         }
 
         #region Command Wrappers
@@ -391,7 +399,7 @@ namespace LilyConsole
         /// <exception cref="ArgumentException">Thrown if the data to write is not exactly 16 bytes, or if <paramref name="card"/> is not a Mifare card.</exception>
         public ReaderResponseStatus WriteBlock(ReaderCard card, byte block, byte[] data)
         {
-            if (card.type != ReaderCardType.Mifare) throw new ArgumentException("ReadBlock is only for Mifare cards");
+            if (card.type != ReaderCardType.Mifare) throw new ArgumentException("WriteBlock is only for Mifare cards");
             
             return WriteBlock(card.uid, block, data);
         }
@@ -407,9 +415,9 @@ namespace LilyConsole
         {
             
             var color = new LightColor(
-                channel.HasFlag(ReaderColorChannel.Red) ? value : readerColor.r,
-                channel.HasFlag(ReaderColorChannel.Green) ? value : readerColor.g,
-                channel.HasFlag(ReaderColorChannel.Blue) ? value : readerColor.b,
+                channel.HasFlag(ReaderColorChannel.Red) ? value : readerColor.R,
+                channel.HasFlag(ReaderColorChannel.Green) ? value : readerColor.G,
+                channel.HasFlag(ReaderColorChannel.Blue) ? value : readerColor.B,
                 0xFF);
             
             if (color == _readerColor) return;
@@ -428,7 +436,7 @@ namespace LilyConsole
         {
             if (color == _readerColor) return;
             
-            SendCommand( new ReaderCommand(ReaderCommandType.LightSetColor, new []{ (byte)color.r, (byte)color.g, (byte)color.b } ));
+            SendCommand( new ReaderCommand(ReaderCommandType.LightSetColor, new []{ (byte)color.R, (byte)color.G, (byte)color.B } ));
             _readerColor = color;
         }
 

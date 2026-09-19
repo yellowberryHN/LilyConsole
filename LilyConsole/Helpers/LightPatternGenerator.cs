@@ -18,9 +18,9 @@ namespace LilyConsole.Helpers
             for (var column = 0; column < 8; column++)
             {
                 var ratio = (float)column / 7;
-                var r = (byte)(outerColor.r + ratio * (innerColor.r - outerColor.r));
-                var g = (byte)(outerColor.g + ratio * (innerColor.g - outerColor.g));
-                var b = (byte)(outerColor.b + ratio * (innerColor.b - outerColor.b));
+                var r = (byte)(outerColor.R + ratio * (innerColor.R - outerColor.R));
+                var g = (byte)(outerColor.G + ratio * (innerColor.G - outerColor.G));
+                var b = (byte)(outerColor.B + ratio * (innerColor.B - outerColor.B));
 
                 colors[column] = new LightColor(r, g, b);
             }
